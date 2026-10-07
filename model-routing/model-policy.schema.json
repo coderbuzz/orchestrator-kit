@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "company-os/model-policy/1",
+  "title": "Model policy (file suffix: .model-policy.yaml)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "name", "version", "requirements", "preferences", "candidates"],
+  "properties": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+    "name": {"type": "string"},
+    "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
+    "requirements": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "capabilities": {"type": "array", "items": {"enum": ["reasoning", "coding", "long_context", "tool_use", "vision", "web_research"]}},
+        "min_context_tokens": {"type": ["integer", "null"], "minimum": 0},
+        "task_complexity": {"enum": ["low", "medium", "high"]}
+      }
+    },
+    "preferences": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "optimize_for": {"enum": ["quality", "cost", "latency", "reliability", "balanced"]},
+        "max_latency_class": {"enum": ["interactive", "batch", "any"]}
+      }
+    },
+    "candidates": {"type": "array", "minItems": 1, "description": "Ordered preference. The router picks the first routable candidate (harness enabled in config/models).",
+      "items": {"type": "object", "additionalProperties": false, "required": ["harness", "model"],
+        "properties": {"harness": {"type": "string"}, "model": {"type": "string"}, "provider": {"type": "string"}}}}
+  }
+}

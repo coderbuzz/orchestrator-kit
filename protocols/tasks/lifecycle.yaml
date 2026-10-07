@@ -1,0 +1,17 @@
+# Deterministic task state machine. Phase-2 orchestrator must enforce exactly these transitions.
+# Test: tests/contracts/test_lifecycle.py keeps this in sync with task.schema.json.
+version: 1.0.0
+initial: PENDING
+terminal: [COMPLETED, FAILED, CANCELLED]
+transitions:
+  PENDING: [PLANNED, CANCELLED]
+  PLANNED: [RUNNING, BLOCKED, CANCELLED]
+  RUNNING: [BLOCKED, WAITING_APPROVAL, COMPLETED, FAILED, CANCELLED]
+  BLOCKED: [PLANNED, RUNNING, FAILED, CANCELLED]
+  WAITING_APPROVAL: [RUNNING, FAILED, CANCELLED]   # granted -> RUNNING, rejected -> FAILED or CANCELLED
+  COMPLETED: []
+  FAILED: []
+  CANCELLED: []
+guards:
+  COMPLETED: "task.evidence is non-empty and every required_artifacts type is present among evidence artifacts"
+  WAITING_APPROVAL: "an ApprovalRequested event exists for the task"
