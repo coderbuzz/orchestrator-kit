@@ -4,20 +4,109 @@
   "title": "Artifact (evidence record)",
   "type": "object",
   "additionalProperties": false,
-  "required": ["artifact_id", "type", "location", "created_by", "created_at", "version", "status", "evidence"],
+  "required": [
+    "artifact_id",
+    "type",
+    "location",
+    "created_by",
+    "created_at",
+    "version",
+    "status",
+    "evidence"
+  ],
   "properties": {
-    "artifact_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$"},
-    "type": {"enum": ["research_report", "pull_request", "commit", "build", "test_result", "deployment", "architecture_document", "campaign", "sales_lead", "proposal", "financial_analysis", "customer_feedback", "incident_report", "other"]},
-    "location": {"type": "string", "description": "URL, repo path, or storage URI. The artifact body is not embedded."},
-    "created_by": {"type": "string"},
-    "created_at": {"type": "string", "format": "date-time"},
-    "version": {"type": "string"},
-    "status": {"enum": ["draft", "submitted", "accepted", "rejected", "superseded"]},
-    "evidence": {"type": "object", "description": "Verifiable proof: e.g. {sha, check_url, metric}. May be empty only for drafts."},
-    "task_id": {"type": "string"}
+    "artifact_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$"
+    },
+    "type": {
+      "enum": [
+        "research_report",
+        "pull_request",
+        "commit",
+        "build",
+        "test_result",
+        "deployment",
+        "architecture_document",
+        "campaign",
+        "sales_lead",
+        "proposal",
+        "financial_analysis",
+        "customer_feedback",
+        "incident_report",
+        "plan",
+        "decision_record",
+        "board_report",
+        "business_case",
+        "feasibility_assessment",
+        "requirements_document",
+        "design_document",
+        "code_review",
+        "qa_report",
+        "security_review",
+        "release_report",
+        "gtm_plan",
+        "content",
+        "analytics_report",
+        "support_ticket",
+        "customer_health_report",
+        "operations_report",
+        "compliance_review",
+        "approval_review",
+        "verification_report",
+        "other"
+      ]
+    },
+    "location": {
+      "type": "string",
+      "description": "URL, repo path, or storage URI. The artifact body is not embedded."
+    },
+    "created_by": {
+      "type": "string"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "version": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "draft",
+        "submitted",
+        "accepted",
+        "rejected",
+        "superseded"
+      ]
+    },
+    "evidence": {
+      "type": "object",
+      "description": "Verifiable proof: e.g. {sha, check_url, metric}. May be empty only for drafts."
+    },
+    "task_id": {
+      "type": "string"
+    }
   },
-  "allOf": [{
-    "if": {"properties": {"status": {"enum": ["accepted", "submitted"]}}},
-    "then": {"properties": {"evidence": {"minProperties": 1}}}
-  }]
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "enum": [
+              "accepted",
+              "submitted"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "evidence": {
+            "minProperties": 1
+          }
+        }
+      }
+    }
+  ]
 }

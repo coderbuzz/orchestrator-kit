@@ -3,17 +3,183 @@
   "$id": "company-os/config/1",
   "title": "Config files. Examples use placeholders; real values live in *.local.* (git-ignored) or the environment.",
   "$defs": {
-    "company": {"type": "object", "additionalProperties": false, "required": ["name", "board", "state_store"],
-      "properties": {"name": {"type": "string"}, "board": {"type": "object", "required": ["contact_ref"], "properties": {"contact_ref": {"type": "string", "description": "Name of an env var or secret holding the contact; never the contact itself."}}},
-                     "state_store": {"type": "object", "required": ["kind", "path"], "properties": {"kind": {"enum": ["filesystem"]}, "path": {"type": "string"}}}}},
-    "models": {"type": "object", "additionalProperties": false, "required": ["harnesses", "default_model_policy"],
-      "properties": {"harnesses": {"type": "array", "items": {"type": "object", "required": ["id", "enabled"], "properties": {"id": {"type": "string"}, "enabled": {"type": "boolean"}, "default_model": {"type": "string"}}}},
-                     "default_model_policy": {"type": "string"}}},
-    "agents": {"type": "object", "additionalProperties": false, "required": ["enabled"],
-      "properties": {"enabled": {"type": "array", "items": {"type": "string"}}, "overrides": {"type": "object", "description": "agent id -> partial agent fields (model_policy, budget_policy only)"}}},
-    "policies": {"type": "object", "additionalProperties": false, "required": ["enabled"],
-      "properties": {"enabled": {"type": "array", "items": {"type": "string"}}, "parameters": {"type": "object", "description": "policy id -> parameter overrides (e.g. approval thresholds)"}}},
-    "environment": {"type": "object", "additionalProperties": false, "required": ["name", "required_env"],
-      "properties": {"name": {"type": "string"}, "required_env": {"type": "array", "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"}, "description": "Env var NAMES the runtime needs. Values are never committed."}}}
+    "company": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "board",
+        "state_store"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "board": {
+          "type": "object",
+          "required": [
+            "contact_ref"
+          ],
+          "properties": {
+            "contact_ref": {
+              "type": "string",
+              "description": "Name of an env var or secret holding the contact; never the contact itself."
+            }
+          }
+        },
+        "state_store": {
+          "type": "object",
+          "required": [
+            "kind",
+            "path"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "filesystem"
+              ]
+            },
+            "path": {
+              "type": "string"
+            }
+          }
+        },
+        "workspaces_path": {
+          "type": "string",
+          "description": "Where task workspaces (product repos) live. Keep it outside any directory with machine-local agent instructions."
+        },
+        "max_parallel_tasks": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "poll_seconds": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "models": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "harnesses",
+        "default_model_policy"
+      ],
+      "properties": {
+        "harnesses": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "enabled"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "default_model": {
+                "type": "string"
+              },
+              "estimated_cost_usd_per_call": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "description": "Used for budget accounting when the harness does not report cost."
+              },
+              "timeout_seconds": {
+                "type": "integer",
+                "minimum": 30
+              }
+            }
+          }
+        },
+        "default_model_policy": {
+          "type": "string"
+        },
+        "fallback": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "max_candidates_per_attempt": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "circuit_breaker_failures": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "circuit_breaker_seconds": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "agents": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "overrides": {
+          "type": "object",
+          "description": "agent id -> partial agent fields (model_policy, budget_policy only)"
+        }
+      }
+    },
+    "policies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "parameters": {
+          "type": "object",
+          "description": "policy id -> parameter overrides (e.g. approval thresholds)"
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "required_env"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "required_env": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]*$"
+          },
+          "description": "Env var NAMES the runtime needs. Values are never committed."
+        }
+      }
+    }
   }
 }

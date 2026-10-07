@@ -4,33 +4,322 @@
   "title": "Task",
   "type": "object",
   "additionalProperties": false,
-  "required": ["task_id", "parent_task_id", "objective", "assigned_agent", "created_by", "priority", "status", "dependencies", "acceptance_criteria", "created_at", "updated_at"],
+  "required": [
+    "task_id",
+    "parent_task_id",
+    "objective",
+    "assigned_agent",
+    "created_by",
+    "priority",
+    "status",
+    "dependencies",
+    "acceptance_criteria",
+    "created_at",
+    "updated_at"
+  ],
   "properties": {
-    "task_id": {"$ref": "#/$defs/uid"},
-    "parent_task_id": {"oneOf": [{"$ref": "#/$defs/uid"}, {"type": "null"}]},
-    "objective": {"type": "string", "minLength": 1},
-    "description": {"type": "string"},
-    "assigned_agent": {"oneOf": [{"type": "string", "pattern": "^[a-z][a-z0-9-]*$"}, {"type": "null"}]},
-    "created_by": {"type": "string"},
-    "priority": {"enum": ["low", "normal", "high", "critical"]},
-    "status": {"enum": ["PENDING", "PLANNED", "RUNNING", "BLOCKED", "WAITING_APPROVAL", "FAILED", "COMPLETED", "CANCELLED"]},
-    "dependencies": {"type": "array", "items": {"$ref": "#/$defs/uid"}},
-    "budget": {"type": ["object", "null"], "additionalProperties": false,
-      "properties": {"max_cost_usd": {"type": ["number", "null"], "minimum": 0}, "max_tokens": {"type": ["integer", "null"], "minimum": 0}, "max_wall_seconds": {"type": ["integer", "null"], "minimum": 0}}},
-    "deadline": {"type": ["string", "null"], "format": "date-time"},
-    "inputs": {"type": "object"},
-    "required_artifacts": {"type": "array", "items": {"type": "string"}, "description": "Artifact types that must exist for completion."},
-    "acceptance_criteria": {"type": "array", "minItems": 1, "items": {"type": "string"}},
-    "approval_level": {"type": "integer", "minimum": 0, "maximum": 4},
-    "evidence": {"type": "array", "items": {"type": "string", "description": "artifact_id references"}},
-    "result": {"type": ["object", "null"], "properties": {"summary": {"type": "string"}}},
-    "created_at": {"type": "string", "format": "date-time"},
-    "updated_at": {"type": "string", "format": "date-time"}
+    "task_id": {
+      "$ref": "#/$defs/uid"
+    },
+    "parent_task_id": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/uid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "objective": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string"
+    },
+    "assigned_agent": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "created_by": {
+      "type": "string"
+    },
+    "priority": {
+      "enum": [
+        "low",
+        "normal",
+        "high",
+        "critical"
+      ]
+    },
+    "status": {
+      "enum": [
+        "PENDING",
+        "PLANNED",
+        "RUNNING",
+        "BLOCKED",
+        "WAITING_APPROVAL",
+        "FAILED",
+        "COMPLETED",
+        "CANCELLED"
+      ]
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/uid"
+      }
+    },
+    "budget": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "max_cost_usd": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "max_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "max_wall_seconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "deadline": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "inputs": {
+      "type": "object"
+    },
+    "required_artifacts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Artifact types that must exist for completion."
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "approval_level": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "artifact_id references"
+      }
+    },
+    "result": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string"
+        }
+      }
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "owner": {
+      "type": "string",
+      "description": "Agent accountable for the outcome (usually the run owner or a department head)."
+    },
+    "workflow_run_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "step_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "skill": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Skill ref id[@version] the task is executed with."
+    },
+    "model_policy": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "attempts": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "max_attempts": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "tried_agents": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "cost_usd": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Actual cost so far (sum of harness calls)."
+    },
+    "blocked_reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "verification": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "verdict": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NEEDS_REVIEW"
+          ]
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "verifier": {
+          "type": "string"
+        }
+      }
+    },
+    "verification_mode": {
+      "enum": [
+        "deterministic",
+        "independent"
+      ]
+    },
+    "verifier_agent": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "decision_options": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "If set, the result must select one of these."
+    },
+    "approval_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "kind": {
+      "enum": [
+        "work",
+        "approval_review",
+        "verification",
+        "escalation"
+      ],
+      "description": "work = normal task; others are created by the orchestrator."
+    },
+    "awaiting_task": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Verification task this task waits for."
+    },
+    "waived": {
+      "type": "boolean",
+      "description": "Failed task explicitly waived by its escalation owner or the Board; dependents may proceed."
+    },
+    "iteration": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "optional": {
+      "type": "boolean"
+    }
   },
-  "allOf": [{
-    "if": {"properties": {"status": {"const": "COMPLETED"}}},
-    "then": {"required": ["evidence"], "properties": {"evidence": {"minItems": 1}},
-             "description": "Evidence over claims: COMPLETED requires at least one artifact reference."}
-  }],
-  "$defs": {"uid": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$"}}
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "COMPLETED"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "evidence"
+        ],
+        "properties": {
+          "evidence": {
+            "minItems": 1
+          }
+        },
+        "description": "Evidence over claims: COMPLETED requires at least one artifact reference."
+      }
+    }
+  ],
+  "$defs": {
+    "uid": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$"
+    }
+  }
 }

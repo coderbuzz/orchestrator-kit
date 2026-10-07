@@ -31,6 +31,9 @@ PROTOCOLS = {
     "artifact": "protocols/artifacts/artifact.schema.json",
     "approval": "protocols/approvals/approval.schema.json",
     "company-state": "company/state.schema.json",
+    "run": "protocols/runs/run.schema.json",
+    "agent-result": "protocols/results/agent-result.schema.json",
+    "board-report": "protocols/reports/board-report.schema.json",
 }
 CONFIG_DIRS = {"company": "company", "models": "models", "agents": "agents", "policies": "policies", "environments": "environment"}
 
@@ -56,17 +59,18 @@ def validate_instance(kind: str, data) -> list[str]:
     return errors_for(schema_validator(PROTOCOLS[kind]), data)
 
 
-def _files():
-    for p in sorted(ROOT.rglob("*")):
-        if p.is_file() and not (set(p.relative_to(ROOT).parts) & SKIP):
+def _files(root: Path):
+    for p in sorted(root.rglob("*")):
+        if p.is_file() and not (set(p.relative_to(root).parts) & SKIP):
             yield p
 
 
-def discover() -> dict[str, list[tuple[Path, object]]]:
+def discover(root: Path | None = None) -> dict[str, list[tuple[Path, object]]]:
     """Return {kind: [(path, parsed)]} for all definitions and config files."""
+    root = root or ROOT
     found: dict[str, list] = {}
-    for p in _files():
-        rel = p.relative_to(ROOT)
+    for p in _files(root):
+        rel = p.relative_to(root)
         name = p.name
         kind = next((k for k in KINDS if name.endswith(k)), None)
         if kind is None and rel.parts[0] == "config" and len(rel.parts) == 3 and p.suffix == ".yaml":
@@ -99,9 +103,10 @@ def check() -> list[str]:
     for kind in (".agent.yaml", ".skill.yaml", ".policy.yaml", ".workflow.yaml", ".model-policy.yaml", ".harness.yaml"):
         seen: set = set()
         for path, d in found.get(kind, []):
-            if d["id"] in seen:
+            key = (d["id"], d["version"]) if kind in (".skill.yaml", ".policy.yaml") else d["id"]  # skills/policies may keep old versions
+            if key in seen:
                 errs.append(f"{path.relative_to(ROOT)}: duplicate {kind} id '{d['id']}'")
-            seen.add(d["id"])
+            seen.add(key)
     cap_ids = [c["id"] for _, d in found.get(".capabilities.yaml", []) for c in d["capabilities"]]
     errs += [f"duplicate capability id '{c}'" for c in set(cap_ids) if cap_ids.count(c) > 1]
 
@@ -137,6 +142,93 @@ def check() -> list[str]:
     for path, c in found.get("config:models", []):
         need(path, "harness", [h["id"] for h in c["harnesses"]], harnesses)
         need(path, "model policy", [c["default_model_policy"]], mpols)
+    errs += _semantic_checks(found)
+    return errs
+
+
+def _semantic_checks(found) -> list[str]:
+    """Checks that need resolved references: versions, capability coverage, workflow composition, memory scopes."""
+    from .registry import Registry, SECTION_RE
+    errs: list[str] = []
+    try:
+        reg = Registry(ROOT)
+    except Exception as e:  # noqa: BLE001
+        return [f"registry: {e}"]
+    rel = lambda p: p.relative_to(ROOT)  # noqa: E731
+    sections = set(load(ROOT / "company/state.schema.json")["properties"])
+    depts = set(load(ROOT / "agents/agent.schema.json")["properties"]["department"]["enum"])
+    events = set(load(ROOT / "protocols/events/event.schema.json")["properties"]["type"]["enum"])
+    art_types = set(reg.evidence_rules["types"])
+    stages = set(reg.product_lifecycle["transitions"])
+    for path, a in found.get(".agent.yaml", []):
+        for ref in a["skills"]:
+            try:
+                s = reg.skill(ref)
+            except KeyError as e:
+                errs.append(f"{rel(path)}: {e}")
+                continue
+            missing = [c for c in s["required_capabilities"] if c not in a["tools"]]
+            if missing:
+                errs.append(f"{rel(path)}: skill {s['id']} requires capabilities {missing} the agent lacks")
+        for ref in a["policies"]:
+            try:
+                reg.policy(ref)
+            except KeyError as e:
+                errs.append(f"{rel(path)}: {e}")
+        for scope in a["memory_scope"]["reads"] + a["memory_scope"]["writes"]:
+            kind, _, name = scope.partition("/")
+            ok = scope == "company/context" or (SECTION_RE.match(scope) and (name in sections if kind == "company" else name in depts))
+            if not ok:
+                errs.append(f"{rel(path)}: unknown memory scope '{scope}'")
+        errs += [f"{rel(path)}: unknown output artifact type '{o}'" for o in a["outputs"] if o not in art_types]
+    for path, s in found.get(".skill.yaml", []):
+        if s.get("model_policy") and s["model_policy"] not in reg.model_policies:
+            errs.append(f"{rel(path)}: unknown model_policy '{s['model_policy']}'")
+        errs += [f"{rel(path)}: unknown output artifact type '{o}'" for o in s["outputs"] if o not in art_types]
+    for path, h in found.get(".harness.yaml", []):
+        errs += [f"{rel(path)}: capability_tools names unknown capability '{c}'" for c in (h.get("capability_tools") or {}) if c not in reg.capabilities]
+    for path, w in found.get(".workflow.yaml", []):
+        if w["owner"] not in reg.agents:
+            errs.append(f"{rel(path)}: unknown owner '{w['owner']}'")
+        steps = {s["id"]: s for s in w["steps"]}
+        if w.get("trigger", {}).get("event_type") and w["trigger"]["event_type"] not in events:
+            errs.append(f"{rel(path)}: unknown trigger event '{w['trigger']['event_type']}'")
+        if w.get("product_stage_on_start") and w["product_stage_on_start"] not in stages:
+            errs.append(f"{rel(path)}: unknown product stage '{w['product_stage_on_start']}'")
+        order = {sid: i for i, sid in enumerate(steps)}
+        for s in w["steps"]:
+            where = f"{rel(path)} step {s['id']}"
+            if s["agent"] in reg.agents and s.get("skill"):
+                try:
+                    reg.agent_skill(s["agent"], s["skill"])
+                except KeyError as e:
+                    errs.append(f"{where}: {e}")
+            errs += [f"{where}: depends on later step '{d}' (steps must be in dependency order)" for d in s.get("depends_on", []) if d in order and order[d] >= order[s["id"]]]
+            errs += [f"{where}: unknown artifact type '{t}'" for t in s.get("produces", []) if t not in art_types]
+            errs += [f"{where}: unknown event '{e}'" for e in s.get("emits_on_complete", []) if e not in events]
+            if s.get("product_stage_on_complete") and s["product_stage_on_complete"] not in stages:
+                errs.append(f"{where}: unknown product stage '{s['product_stage_on_complete']}'")
+            v = (s.get("verification") or {}).get("verifier")
+            if v and v not in reg.agents:
+                errs.append(f"{where}: unknown verifier '{v}'")
+            dec = s.get("decision") or {}
+            opt_ids = {o["id"] for o in dec.get("options", [])}
+            if dec.get("on_iteration_limit") and dec["on_iteration_limit"] not in opt_ids:
+                errs.append(f"{where}: on_iteration_limit '{dec['on_iteration_limit']}' is not an option")
+            for o in dec.get("options", []):
+                for e in o["effects"]:
+                    if "start_workflow" in e and e["start_workflow"] not in reg.workflows:
+                        errs.append(f"{where}: option {o['id']} starts unknown workflow '{e['start_workflow']}'")
+                    if "iterate_from" in e and e["iterate_from"] not in steps:
+                        errs.append(f"{where}: option {o['id']} iterates from unknown step '{e['iterate_from']}'")
+                    if "emit" in e and e["emit"] not in events:
+                        errs.append(f"{where}: option {o['id']} emits unknown event '{e['emit']}'")
+                    if "product_transition" in e and e["product_transition"] not in stages:
+                        errs.append(f"{where}: option {o['id']} unknown product stage '{e['product_transition']}'")
+    enabled = set(reg.config["agents"].get("enabled") or [])
+    for wid, w in reg.workflows.items():
+        if not wid.startswith("example"):
+            errs += [f"workflow {wid}: agent '{s['agent']}' is not enabled in config/agents" for s in w["steps"] if s["agent"] not in enabled]
     return errs
 
 

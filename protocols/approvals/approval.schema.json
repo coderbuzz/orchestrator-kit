@@ -4,20 +4,86 @@
   "title": "Approval request",
   "type": "object",
   "additionalProperties": false,
-  "required": ["approval_id", "task_id", "requested_by", "level", "action", "justification", "status", "requested_at"],
+  "required": [
+    "approval_id",
+    "task_id",
+    "requested_by",
+    "level",
+    "action",
+    "justification",
+    "status",
+    "requested_at"
+  ],
   "properties": {
-    "approval_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$"},
-    "task_id": {"type": "string"},
-    "requested_by": {"type": "string"},
-    "level": {"type": "integer", "minimum": 1, "maximum": 4, "description": "Level 0 never needs approval. Meanings: policies/authority/approval-levels.policy.yaml"},
-    "action": {"type": "string", "description": "What will happen if granted."},
-    "justification": {"type": "string"},
-    "decision_id": {"type": "string"},
-    "evidence": {"type": "array", "items": {"type": "string"}},
-    "status": {"enum": ["pending", "granted", "rejected", "expired"]},
-    "requested_at": {"type": "string", "format": "date-time"},
-    "resolved_by": {"type": ["string", "null"]},
-    "resolved_at": {"type": ["string", "null"], "format": "date-time"},
-    "resolution_note": {"type": "string"}
+    "approval_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$"
+    },
+    "task_id": {
+      "type": "string"
+    },
+    "requested_by": {
+      "type": "string"
+    },
+    "level": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4,
+      "description": "Level 0 never needs approval. Meanings: policies/authority/approval-levels.policy.yaml"
+    },
+    "action": {
+      "type": "string",
+      "description": "What will happen if granted."
+    },
+    "justification": {
+      "type": "string"
+    },
+    "decision_id": {
+      "type": "string"
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "status": {
+      "enum": [
+        "pending",
+        "granted",
+        "rejected",
+        "expired"
+      ]
+    },
+    "requested_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "resolved_by": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "resolved_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "resolution_note": {
+      "type": "string"
+    },
+    "approver": {
+      "type": "string",
+      "description": "Agent id or 'board' (approver chain, decision-rights policy)."
+    },
+    "review_task_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
   }
 }

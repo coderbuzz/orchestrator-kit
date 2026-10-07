@@ -1,77 +1,304 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "company-os/agent/1",
+  "$id": "company-os/agent/2",
   "title": "Agent definition (file suffix: .agent.yaml)",
   "type": "object",
   "additionalProperties": false,
-  "required": ["id", "name", "version", "type", "role", "mission", "responsibilities", "non_responsibilities", "authority", "inputs", "outputs", "skills", "tools", "policies", "model_policy", "budget_policy", "approval_policy", "success_criteria", "escalation_rules", "memory_scope"],
+  "required": [
+    "id",
+    "name",
+    "version",
+    "type",
+    "role",
+    "mission",
+    "responsibilities",
+    "non_responsibilities",
+    "authority",
+    "inputs",
+    "outputs",
+    "skills",
+    "tools",
+    "policies",
+    "model_policy",
+    "budget_policy",
+    "approval_policy",
+    "success_criteria",
+    "escalation_rules",
+    "memory_scope",
+    "department"
+  ],
   "properties": {
-    "id": {"$ref": "#/$defs/id"},
-    "name": {"type": "string", "minLength": 1},
-    "version": {"$ref": "#/$defs/semver"},
-    "type": {"enum": ["orchestrator", "executive", "department", "worker"]},
-    "role": {"type": "string", "minLength": 1},
-    "mission": {"type": "string", "minLength": 1},
-    "prompt_file": {"type": "string", "description": "Repo-relative path to the system prompt (markdown). Prompts hold role voice and judgment guidance only; rules live in policies."},
-    "responsibilities": {"type": "array", "minItems": 1, "items": {"type": "string"}},
-    "non_responsibilities": {"type": "array", "items": {"type": "string"}},
-    "authority": {
-      "type": "object", "additionalProperties": false,
-      "required": ["reports_to", "delegates_to", "max_approval_level"],
-      "properties": {
-        "reports_to": {"anyOf": [{"$ref": "#/$defs/id"}, {"const": "board"}]},
-        "delegates_to": {"type": "array", "items": {"$ref": "#/$defs/id"}},
-        "max_approval_level": {"type": "integer", "minimum": 0, "maximum": 4, "description": "Highest approval level this agent may grant itself. See policies/authority."}
+    "id": {
+      "$ref": "#/$defs/id"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "$ref": "#/$defs/semver"
+    },
+    "type": {
+      "enum": [
+        "orchestrator",
+        "executive",
+        "department",
+        "worker"
+      ]
+    },
+    "role": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mission": {
+      "type": "string",
+      "minLength": 1
+    },
+    "prompt_file": {
+      "type": "string",
+      "description": "Repo-relative path to the system prompt (markdown). Prompts hold role voice and judgment guidance only; rules live in policies."
+    },
+    "responsibilities": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
       }
     },
-    "inputs": {"type": "array", "items": {"type": "string"}},
-    "outputs": {"type": "array", "items": {"type": "string"}, "description": "Artifact types (protocols/artifacts) this agent produces."},
-    "skills": {"type": "array", "items": {"$ref": "#/$defs/ref"}},
-    "tools": {"type": "array", "items": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"}, "description": "Capability ids (tools/capabilities). Never concrete tool names."},
-    "policies": {"type": "array", "items": {"$ref": "#/$defs/ref"}},
-    "model_policy": {"$ref": "#/$defs/id"},
-    "budget_policy": {
-      "type": "object", "additionalProperties": false,
+    "non_responsibilities": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reports_to",
+        "delegates_to",
+        "max_approval_level"
+      ],
       "properties": {
-        "max_cost_usd_per_task": {"type": ["number", "null"], "minimum": 0},
-        "max_cost_usd_per_day": {"type": ["number", "null"], "minimum": 0}
+        "reports_to": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/id"
+            },
+            {
+              "const": "board"
+            }
+          ]
+        },
+        "delegates_to": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "max_approval_level": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4,
+          "description": "Highest approval level this agent may grant itself. See policies/authority."
+        }
+      }
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "outputs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Artifact types (protocols/artifacts) this agent produces."
+    },
+    "skills": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ref"
+      }
+    },
+    "tools": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*$"
+      },
+      "description": "Capability ids (tools/capabilities). Never concrete tool names."
+    },
+    "policies": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ref"
+      }
+    },
+    "model_policy": {
+      "$ref": "#/$defs/id"
+    },
+    "budget_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_cost_usd_per_task": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "max_cost_usd_per_day": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        }
       },
       "description": "null = inherit from policies/finance. No numbers are hard-coded in this repo's defaults."
     },
     "approval_policy": {
-      "type": "object", "additionalProperties": false,
-      "required": ["default_level"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "default_level"
+      ],
       "properties": {
-        "default_level": {"type": "integer", "minimum": 0, "maximum": 4},
-        "rules": {"type": "array", "items": {
-          "type": "object", "additionalProperties": false, "required": ["when", "level"],
-          "properties": {"when": {"type": "string"}, "level": {"type": "integer", "minimum": 0, "maximum": 4}}}}
+        "default_level": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "when",
+              "level"
+            ],
+            "properties": {
+              "when": {
+                "type": "string"
+              },
+              "level": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4
+              }
+            }
+          }
+        }
       }
     },
-    "success_criteria": {"type": "array", "minItems": 1, "items": {"type": "string"}},
-    "escalation_rules": {"type": "array", "items": {
-      "type": "object", "additionalProperties": false, "required": ["when", "action"],
-      "properties": {
-        "when": {"type": "string"},
-        "action": {"enum": ["escalate", "wait_approval", "block", "abort"]},
-        "to": {"type": "string"}
-      }}},
-    "memory_scope": {
-      "type": "object", "additionalProperties": false, "required": ["reads", "writes"],
-      "properties": {
-        "reads": {"type": "array", "items": {"type": "string"}},
-        "writes": {"type": "array", "items": {"type": "string"}}
+    "success_criteria": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
       }
+    },
+    "escalation_rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "when",
+          "action"
+        ],
+        "properties": {
+          "when": {
+            "type": "string"
+          },
+          "action": {
+            "enum": [
+              "escalate",
+              "wait_approval",
+              "block",
+              "abort"
+            ]
+          },
+          "to": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "memory_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reads",
+        "writes"
+      ],
+      "properties": {
+        "reads": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "writes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "department": {
+      "enum": [
+        "executive",
+        "engineering",
+        "product",
+        "finance",
+        "operations",
+        "marketing",
+        "sales",
+        "customer",
+        "research",
+        "data",
+        "legal"
+      ],
+      "description": "Department memory scope (department/<dept>)."
+    },
+    "max_concurrent_tasks": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "How many tasks this definition may run at once. Workers are templates: one definition, many task instances."
     }
   },
   "$defs": {
-    "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
-    "semver": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
     "ref": {
-      "type": "object", "additionalProperties": false, "required": ["id"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id"
+      ],
       "properties": {
-        "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
-        "version": {"type": "string", "pattern": "^\\^?\\d+(\\.\\d+){0,2}$", "description": "Exact (1.2.0) or compatible-major (^1). Omit = latest."}
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\^?\\d+(\\.\\d+){0,2}$",
+          "description": "Exact (1.2.0) or compatible-major (^1). Omit = latest."
+        }
       }
     }
   }

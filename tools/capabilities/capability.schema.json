@@ -4,17 +4,61 @@
   "title": "Capability catalog (file suffix: .capabilities.yaml)",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "capabilities"],
+  "required": [
+    "version",
+    "capabilities"
+  ],
   "properties": {
-    "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
-    "capabilities": {"type": "array", "minItems": 1, "items": {
-      "type": "object", "additionalProperties": false, "required": ["id", "description", "risk"],
-      "properties": {
-        "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
-        "description": {"type": "string"},
-        "risk": {"enum": ["read", "write", "external", "irreversible"]},
-        "min_approval_level": {"type": "integer", "minimum": 0, "maximum": 4},
-        "adapter": {"type": ["string", "null"], "description": "Path under tools/adapters implementing it; null = not implemented yet."}
-      }}}
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "description",
+          "risk"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "description": {
+            "type": "string"
+          },
+          "risk": {
+            "enum": [
+              "read",
+              "write",
+              "external",
+              "irreversible"
+            ]
+          },
+          "min_approval_level": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4
+          },
+          "adapter": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "How it is provided: 'harness' = the agent harness's own tools (mapping in model-routing/providers/*.harness.yaml capability_tools); 'internal' = companyos/adapters.py against the state store; null = NOT AVAILABLE in this environment (requires configuration). Never claim an action happened through a null adapter.",
+            "enum": [
+              "harness",
+              "internal",
+              null
+            ]
+          }
+        }
+      }
+    }
   }
 }

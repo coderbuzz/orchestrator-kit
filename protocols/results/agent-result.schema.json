@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "company-os/agent-result/1",
+  "title": "Agent result: the only thing an agent returns for a task. The orchestrator validates it, then verifies evidence. Prose outside this object is ignored.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "summary"],
+  "properties": {
+    "status": {"enum": ["completed", "partial", "blocked", "failed"], "description": "completed = acceptance criteria met with evidence; partial = some evidence, remainder described; blocked = cannot proceed (say why); failed = attempted and could not do it."},
+    "summary": {"type": "string", "minLength": 1, "maxLength": 3000, "description": "Concise outcome for the task owner. No chain-of-thought."},
+    "artifacts": {"type": "array", "maxItems": 20, "items": {
+      "type": "object", "additionalProperties": false, "required": ["type", "title", "evidence"],
+      "properties": {
+        "type": {"type": "string", "description": "Artifact type from protocols/artifacts/artifact.schema.json"},
+        "title": {"type": "string"},
+        "content": {"type": "string", "maxLength": 60000, "description": "Markdown body. The orchestrator stores it and sets location."},
+        "location": {"type": "string", "description": "Existing file path (relative to the task workspace) or URL, when the artifact already lives somewhere."},
+        "evidence": {"type": "object", "description": "Machine-checkable proof; required keys per type in protocols/artifacts/evidence-requirements.yaml."}
+      }}},
+    "decision": {"type": "object", "additionalProperties": false, "required": ["selected_option", "reasoning_summary", "confidence"],
+      "properties": {
+        "selected_option": {"type": "string"},
+        "options_considered": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["id", "summary"],
+          "properties": {"id": {"type": "string"}, "summary": {"type": "string"}, "pros": {"type": "array", "items": {"type": "string"}}, "cons": {"type": "array", "items": {"type": "string"}}}}},
+        "reasoning_summary": {"type": "string", "maxLength": 1500},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "impact": {"enum": ["low", "medium", "high"]},
+        "risk": {"enum": ["low", "medium", "high"]},
+        "reversibility": {"enum": ["easy", "costly", "irreversible"]},
+        "cost_estimate_usd": {"type": ["number", "null"], "minimum": 0},
+        "parameters": {"type": "object", "description": "Inputs for the chosen option's effects (e.g. product_name, target, budget_usd)."}
+      }},
+    "verdict": {"enum": ["PASS", "FAIL", "NEEDS_REVIEW"], "description": "Only for verification and approval-review tasks (PASS = grant)."},
+    "findings": {"type": "array", "items": {"type": "string"}},
+    "actions": {"type": "array", "maxItems": 10, "items": {
+      "type": "object", "additionalProperties": false, "required": ["capability", "reason"],
+      "properties": {"capability": {"type": "string"}, "params": {"type": "object"}, "reason": {"type": "string"}, "estimated_cost_usd": {"type": ["number", "null"], "minimum": 0}}},
+      "description": "Orchestrator-mediated actions (deploy, email, publish, lead, ...). Policy-checked; may need approval; executed only through an available adapter."},
+    "state_updates": {"type": "array", "maxItems": 20, "items": {
+      "type": "object", "additionalProperties": false, "required": ["section", "op", "value"],
+      "properties": {"section": {"type": "string"}, "op": {"enum": ["set", "merge", "append"]}, "value": {}}}},
+    "memory_notes": {"type": "array", "maxItems": 10, "items": {"type": "string", "maxLength": 1000}},
+    "follow_up_tasks": {"$ref": "#/$defs/plan"},
+    "plan": {"$ref": "#/$defs/plan"},
+    "blocked_reason": {"type": "string"},
+    "metrics": {"type": "object"}
+  },
+  "$defs": {
+    "plan": {"type": "array", "maxItems": 15, "items": {
+      "type": "object", "additionalProperties": false, "required": ["key", "objective", "agent", "acceptance_criteria"],
+      "properties": {
+        "key": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+        "objective": {"type": "string"},
+        "agent": {"type": "string"},
+        "skill": {"type": "string"},
+        "acceptance_criteria": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "required_artifacts": {"type": "array", "items": {"type": "string"}},
+        "depends_on": {"type": "array", "items": {"type": "string"}},
+        "budget_usd": {"type": ["number", "null"], "minimum": 0},
+        "decision_options": {"type": "array", "items": {"type": "string"}}
+      }}}
+  }
+}

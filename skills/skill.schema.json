@@ -4,21 +4,104 @@
   "title": "Skill definition (file suffix: .skill.yaml)",
   "type": "object",
   "additionalProperties": false,
-  "required": ["id", "name", "description", "version", "purpose", "inputs", "outputs", "preconditions", "procedure", "validation", "failure_modes", "required_capabilities"],
+  "required": [
+    "id",
+    "name",
+    "description",
+    "version",
+    "purpose",
+    "inputs",
+    "outputs",
+    "preconditions",
+    "procedure",
+    "validation",
+    "failure_modes",
+    "required_capabilities"
+  ],
   "properties": {
-    "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
-    "name": {"type": "string", "minLength": 1},
-    "description": {"type": "string", "minLength": 1},
-    "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
-    "purpose": {"type": "string", "minLength": 1},
-    "inputs": {"type": "array", "items": {"type": "string"}},
-    "outputs": {"type": "array", "items": {"type": "string"}},
-    "preconditions": {"type": "array", "items": {"type": "string"}},
-    "procedure": {"type": "array", "minItems": 1, "items": {"type": "string"}},
-    "validation": {"type": "array", "minItems": 1, "items": {"type": "string"}, "description": "Evidence checks that prove the skill ran correctly."},
-    "failure_modes": {"type": "array", "items": {
-      "type": "object", "additionalProperties": false, "required": ["mode", "handling"],
-      "properties": {"mode": {"type": "string"}, "handling": {"type": "string"}}}},
-    "required_capabilities": {"type": "array", "items": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"}}
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "purpose": {
+      "type": "string",
+      "minLength": 1
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "outputs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "preconditions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "procedure": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "validation": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      },
+      "description": "Evidence checks that prove the skill ran correctly."
+    },
+    "failure_modes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mode",
+          "handling"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string"
+          },
+          "handling": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "required_capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*$"
+      }
+    },
+    "model_policy": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "Overrides the agent's model policy for tasks using this skill (e.g. coding -> coding)."
+    }
   }
 }

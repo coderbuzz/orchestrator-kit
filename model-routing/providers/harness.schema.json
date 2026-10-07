@@ -4,24 +4,114 @@
   "title": "Harness descriptor (file suffix: .harness.yaml)",
   "type": "object",
   "additionalProperties": false,
-  "required": ["id", "name", "version", "kind", "integration_status", "invocation", "providers"],
+  "required": [
+    "id",
+    "name",
+    "version",
+    "kind",
+    "integration_status",
+    "invocation",
+    "providers"
+  ],
   "properties": {
-    "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
-    "name": {"type": "string"},
-    "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
-    "kind": {"enum": ["cli", "api"]},
-    "integration_status": {"enum": ["planned", "documented", "implemented"], "description": "documented = CLI flags verified on a real install, adapter not yet written."},
-    "verified_with": {"type": "string", "description": "Tool version the invocation was verified against."},
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "name": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "kind": {
+      "enum": [
+        "cli",
+        "api"
+      ]
+    },
+    "integration_status": {
+      "enum": [
+        "planned",
+        "documented",
+        "implemented"
+      ],
+      "description": "documented = CLI flags verified on a real install, adapter not yet written."
+    },
+    "verified_with": {
+      "type": "string",
+      "description": "Tool version the invocation was verified against."
+    },
     "invocation": {
-      "type": "object", "additionalProperties": false, "required": ["command", "non_interactive_args"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "non_interactive_args"
+      ],
       "properties": {
-        "command": {"type": "string"},
-        "non_interactive_args": {"type": "array", "items": {"type": "string"}, "description": "Argument template; {prompt}, {model}, {cwd} are filled by the adapter."},
-        "notes": {"type": "string"}
+        "command": {
+          "type": "string"
+        },
+        "non_interactive_args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Argument template; {prompt}, {model}, {cwd} are filled by the adapter."
+        },
+        "notes": {
+          "type": "string"
+        }
       }
     },
-    "providers": {"type": "array", "minItems": 1, "items": {
-      "type": "object", "additionalProperties": false, "required": ["id"],
-      "properties": {"id": {"type": "string"}, "auth_env": {"type": "array", "items": {"type": "string"}, "description": "Names of env vars only. Values never live in Git."}}}}
+    "providers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "auth_env": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Names of env vars only. Values never live in Git."
+          }
+        }
+      }
+    },
+    "capability_tools": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "description": "Capability id -> harness-native tool names granted when the agent holds that capability."
+    },
+    "models": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Model identifiers verified to work with this harness."
+    },
+    "cost_reporting": {
+      "enum": [
+        "exact",
+        "none"
+      ],
+      "description": "exact = harness returns cost per call; none = runtime uses config estimated_cost_usd_per_call."
+    }
   }
 }

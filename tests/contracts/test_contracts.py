@@ -56,6 +56,11 @@ def test_lifecycle_matches_schema():
     assert lc["initial"] in states
 
 
+REQUIRED_EVENTS = {"TaskCreated", "TaskAssigned", "TaskStarted", "TaskCompleted", "TaskFailed", "ApprovalRequested", "ApprovalGranted",
+                   "ApprovalRejected", "BudgetExceeded", "ProductApproved", "DevelopmentCompleted", "QAPassed", "SecurityApproved",
+                   "DeploymentSucceeded", "DeploymentFailed", "CustomerFeedbackReceived", "SalesOpportunityCreated", "IncidentDetected", "DecisionMade"}
+
+
 def test_event_types_are_the_contract_list():
     enum = v.load(v.ROOT / "protocols/events/event.schema.json")["properties"]["type"]["enum"]
-    assert len(enum) == 17 and "DecisionMade" in enum
+    assert REQUIRED_EVENTS <= set(enum) and len(enum) == len(set(enum))
