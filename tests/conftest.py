@@ -58,7 +58,8 @@ class FakeHarness:
         tid = re.search(r'"task_id": "([^"]+)"', req.prompt).group(1)
         task = self.orch.store.get("tasks", tid)
         with self.lock:
-            self.calls.append({"task": tid, "agent": task["assigned_agent"], "step": task["step_id"], "kind": task["kind"], "model": model, "harness": hdef["id"]})
+            self.calls.append({"task": tid, "agent": task["assigned_agent"], "step": task["step_id"], "kind": task["kind"], "model": model, "harness": hdef["id"],
+                               "provider": req.provider, "effort": req.effort})
             self.active += 1
             self.max_active = max(self.max_active, self.active)
         try:

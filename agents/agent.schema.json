@@ -272,6 +272,10 @@
       "type": "integer",
       "minimum": 1,
       "description": "How many tasks this definition may run at once. Workers are templates: one definition, many task instances."
+    },
+    "ai": {
+      "$ref": "../ai/1",
+      "description": "Default AI selection for this agent; model_policy candidates remain the fallback chain."
     }
   },
   "$defs": {

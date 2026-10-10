@@ -57,7 +57,8 @@
         "required_artifacts": {"type": "array", "items": {"type": "string"}},
         "depends_on": {"type": "array", "items": {"type": "string"}},
         "budget_usd": {"type": ["number", "null"], "minimum": 0},
-        "decision_options": {"type": "array", "items": {"type": "string"}}
+        "decision_options": {"type": "array", "items": {"type": "string"}},
+        "ai": {"$ref": "../ai/1", "description": "Per-task AI override chosen by the planning agent."}
       }}}
   }
 }

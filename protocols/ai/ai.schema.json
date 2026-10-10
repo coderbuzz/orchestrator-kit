@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "company-os/ai/1",
+  "title": "AI selection: which harness, provider, model and thinking effort runs a task",
+  "description": "Every field is optional; layers merge field by field (task > skill > config override > agent > config default). A layer that names a different harness drops the provider and model inherited from lower layers; effort carries over. model/provider without a harness in the resolved result are invalid.",
+  "type": "object",
+  "additionalProperties": false,
+  "minProperties": 1,
+  "properties": {
+    "harness": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$", "description": "Harness id (model-routing/providers/<id>.harness.yaml)."},
+    "provider": {"type": "string", "description": "Provider id listed by that harness."},
+    "model": {"type": "string", "description": "Model id as the harness/provider names it."},
+    "effort": {"enum": ["disabled", "low", "medium", "high", "xhigh", "max"], "description": "Thinking effort; the harness descriptor lists which levels it accepts."}
+  }
+}

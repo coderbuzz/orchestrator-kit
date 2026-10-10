@@ -102,6 +102,10 @@
       "type": "string",
       "pattern": "^[a-z][a-z0-9-]*$",
       "description": "Overrides the agent's model policy for tasks using this skill (e.g. coding -> coding)."
+    },
+    "ai": {
+      "$ref": "../ai/1",
+      "description": "AI selection for tasks run with this skill (overrides the agent's)."
     }
   }
 }

@@ -102,6 +102,10 @@
         "default_model_policy": {
           "type": "string"
         },
+        "default_ai": {
+          "$ref": "../ai/1",
+          "description": "Lowest-precedence AI selection (e.g. a default effort)."
+        },
         "fallback": {
           "type": "object",
           "additionalProperties": false,
@@ -137,7 +141,7 @@
         },
         "overrides": {
           "type": "object",
-          "description": "agent id -> partial agent fields (model_policy, budget_policy only)"
+          "description": "agent id -> partial agent fields (model_policy, ai, budget_policy only)"
         }
       }
     },

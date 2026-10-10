@@ -9,6 +9,7 @@ from pathlib import Path
 
 import yaml
 from jsonschema import Draft202012Validator
+from referencing import Registry, Resource
 
 ROOT = Path(__file__).resolve().parent.parent
 SKIP = {".git", ".venv", "tests", "state", "__pycache__"}
@@ -43,11 +44,20 @@ def load(path: Path):
     return json.loads(text) if path.suffix == ".json" else yaml.safe_load(text)
 
 
+AI_SCHEMA = "protocols/ai/ai.schema.json"  # shared; other schemas reference it as "../ai/1"
+
+
 def schema_validator(rel: str, fragment: str = "") -> Draft202012Validator:
     schema = load(ROOT / rel)
     if fragment:  # config.schema.json#/$defs/<name>
-        schema = {"$ref": f"#/$defs/{fragment}", "$defs": schema["$defs"]}
-    return Draft202012Validator(schema, format_checker=Draft202012Validator.FORMAT_CHECKER)
+        schema = {"$id": schema["$id"], "$ref": f"#/$defs/{fragment}", "$defs": schema["$defs"]}
+    return validator_for(schema)
+
+
+def validator_for(schema: dict) -> Draft202012Validator:
+    ai = load(ROOT / AI_SCHEMA)
+    registry = Registry().with_resource(ai["$id"], Resource.from_contents(ai))
+    return Draft202012Validator(schema, registry=registry, format_checker=Draft202012Validator.FORMAT_CHECKER)
 
 
 def errors_for(validator: Draft202012Validator, data) -> list[str]:
@@ -229,6 +239,30 @@ def _semantic_checks(found) -> list[str]:
     for wid, w in reg.workflows.items():
         if not wid.startswith("example"):
             errs += [f"workflow {wid}: agent '{s['agent']}' is not enabled in config/agents" for s in w["steps"] if s["agent"] not in enabled]
+    errs += _ai_checks(reg)
+    return errs
+
+
+def _ai_checks(reg) -> list[str]:
+    """Every AI selection in definitions and config must be one its harness can honour (protocols/ai)."""
+    from .harness import unsupported
+    sels = [(f"agent {a}", d.get("ai")) for a, d in reg.agents.items()]
+    sels += [(f"skill {s['id']}@{s['version']}", s.get("ai")) for lst in reg._skills.values() for s in lst]
+    sels += [(f"workflow {w}/{st['id']}", st.get("ai")) for w, d in reg.workflows.items() for st in d["steps"]]
+    sels += [("config models.default_ai", reg.config["models"].get("default_ai"))]
+    sels += [(f"config agents.overrides.{a}", (o or {}).get("ai")) for a, o in (reg.config["agents"].get("overrides") or {}).items()]
+    errs = []
+    for where, ai in sels:
+        if not ai:
+            continue
+        if ai.get("harness") is None:
+            if ai.get("model") or ai.get("provider"):
+                errs.append(f"{where}: ai.model/provider need ai.harness")
+            continue
+        hdef = reg.harnesses.get(ai["harness"])
+        why = f"unknown harness '{ai['harness']}'" if hdef is None else unsupported(hdef, ai.get("model"), ai.get("provider"), ai.get("effort"))
+        if why:
+            errs.append(f"{where}: {why}")
     return errs
 
 

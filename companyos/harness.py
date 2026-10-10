@@ -15,9 +15,8 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 
-from jsonschema import Draft202012Validator
-
 from .registry import Registry
+from .validate import validator_for
 
 
 @dataclass
@@ -28,6 +27,8 @@ class Request:
     capabilities: list[str]
     max_budget_usd: float | None
     timeout_seconds: int
+    provider: str | None = None
+    effort: str | None = None
 
 
 @dataclass
@@ -45,6 +46,39 @@ class CallResult:
 
 class Unavailable(Exception):
     pass
+
+
+@dataclass
+class Route:
+    hdef: dict
+    model: str
+    cfg: dict
+    provider: str | None = None
+
+
+def unsupported(hdef: dict, model: str | None, provider: str | None, effort: str | None) -> str | None:
+    """Why this harness cannot honour the selection per call (None = it can). Never drop a selection silently."""
+    inv, hid = hdef["invocation"], hdef["id"]
+    if provider and provider not in {p["id"] for p in hdef["providers"]}:
+        return f"{hid} does not offer provider '{provider}'"
+    if (provider or (model and model != "configured")) and not inv.get("model_args"):
+        return f"{hid} cannot select a model/provider per call"
+    if provider is None and any("{provider}" in a for a in inv.get("model_args", [])) and model and model != "configured":
+        return f"{hid} needs a provider with model '{model}'"
+    if effort and not inv.get("effort_args"):
+        return f"{hid} cannot select thinking effort per call"
+    if effort and hdef.get("efforts") and effort not in hdef["efforts"]:
+        return f"{hid} does not accept effort '{effort}' (accepts {hdef['efforts']})"
+    return None
+
+
+def selection_args(hdef: dict, model: str | None, req: Request) -> list[str]:
+    inv, out = hdef["invocation"], []
+    if model and model != "configured":
+        out += _fill(inv["model_args"], {"model": model, "provider": req.provider or ""})
+    if req.effort:
+        out += _fill(inv["effort_args"], {"effort": req.effort})
+    return out
 
 
 def extract_json(text: str) -> dict | None:
@@ -128,7 +162,7 @@ def invoke(hdef: dict, model: str, req: Request, schema: dict) -> CallResult:
     builder = BUILDERS.get(hdef["id"])
     if builder is None:
         return CallResult(False, hdef["id"], model, error=f"no adapter builder for harness {hdef['id']}")
-    argv = builder(hdef, model, req, schema)
+    argv = builder(hdef, model, req, schema) + selection_args(hdef, model, req)
     t0 = time.time()
     with tempfile.TemporaryFile("w+") as out:
         try:
@@ -153,7 +187,7 @@ class Router:
         self.check_installed = check_installed
         self.health = health if health is not None else {}  # harness -> {"failures": n, "since": ts}
         self.cfg = reg.config["models"]
-        self._validator = Draft202012Validator(reg.result_schema)
+        self._validator = validator_for(reg.result_schema)
 
     def _breaker_open(self, harness_id: str) -> bool:
         fb = self.cfg.get("fallback") or {}
@@ -161,17 +195,23 @@ class Router:
         return (h.get("failures", 0) >= fb.get("circuit_breaker_failures", 3)
                 and time.time() - h.get("since", 0) < fb.get("circuit_breaker_seconds", 600))
 
-    def route(self, policy_id: str) -> list[tuple[dict, str, dict]]:
-        """[(harness def, model, harness config)] in preference order. Empty = nothing routable."""
+    def route(self, policy_id: str, ai: dict | None = None) -> list[Route]:
+        """Routes in preference order: the resolved AI selection first (if it names a harness), then the model policy
+        candidates as fallbacks. Empty = nothing routable."""
         enabled = self.reg.enabled_harnesses()
+        cands = list(self.reg.model_policies[policy_id]["candidates"])
+        if ai and ai.get("harness"):
+            first = {"harness": ai["harness"], "model": ai.get("model") or (enabled.get(ai["harness"]) or {}).get("default_model"),
+                     "provider": ai.get("provider")}
+            cands = [first] + [c for c in cands if (c["harness"], c["model"]) != (first["harness"], first["model"])]
         out = []
-        for c in self.reg.model_policies[policy_id]["candidates"]:
+        for c in cands:
             hdef, hcfg = self.reg.harnesses.get(c["harness"]), enabled.get(c["harness"])
             if not hdef or not hcfg or self._breaker_open(c["harness"]):
                 continue
             if self.check_installed and not shutil.which(hdef["invocation"]["command"]):
                 continue
-            out.append((hdef, c["model"], hcfg))
+            out.append(Route(hdef, c["model"], hcfg, c.get("provider")))
         return out
 
     def _record(self, harness_id: str, ok: bool):
@@ -182,15 +222,23 @@ class Router:
             h["failures"] += 1
             h["since"] = h["since"] or time.time()
 
-    def call_with_fallback(self, policy_id: str, req: Request, invoke_fn=invoke, which=None) -> list[CallResult]:
-        """All attempts in order; the last one is the outcome. Raises Unavailable if nothing is routable."""
-        routes = self.route(policy_id) if which is None else which
+    def call_with_fallback(self, policy_id: str, req: Request, invoke_fn=invoke, which=None, ai: dict | None = None) -> list[CallResult]:
+        """All attempts in order; the last one is the outcome. Raises Unavailable if nothing is routable.
+        A route that cannot honour the selection (provider/model/effort) is recorded as a failed attempt without a call."""
+        routes = self.route(policy_id, ai) if which is None else which
         if not routes:
             raise Unavailable(f"no enabled, installed harness for model policy '{policy_id}'")
         limit = (self.cfg.get("fallback") or {}).get("max_candidates_per_attempt", 3)
+        effort = (ai or {}).get("effort")
         attempts = []
-        for hdef, model, hcfg in routes[:limit]:
-            r = invoke_fn(hdef, model, Request(**{**req.__dict__, "timeout_seconds": min(req.timeout_seconds, hcfg.get("timeout_seconds", 1800))}),
+        for rt in routes[:limit]:
+            hdef, model, hcfg = rt.hdef, rt.model, rt.cfg
+            why = unsupported(hdef, model, rt.provider, effort)
+            if why:
+                attempts.append(CallResult(False, hdef["id"], model, error=f"unsupported selection: {why}"))
+                continue
+            r = invoke_fn(hdef, model, Request(**{**req.__dict__, "provider": rt.provider, "effort": effort,
+                                                  "timeout_seconds": min(req.timeout_seconds, hcfg.get("timeout_seconds", 1800))}),
                           self.reg.result_schema)
             if r.ok and r.cost_estimated and hdef.get("cost_reporting") == "none":
                 r.cost_usd = hcfg.get("estimated_cost_usd_per_call") or 0.0

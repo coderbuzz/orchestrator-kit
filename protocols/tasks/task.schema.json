@@ -292,6 +292,17 @@
     },
     "optional": {
       "type": "boolean"
+    },
+    "ai": {
+      "anyOf": [
+        {
+          "$ref": "../ai/1"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Per-task AI override (highest precedence)."
     }
   },
   "allOf": [

@@ -32,6 +32,20 @@ def split_ref(ref) -> tuple[str, str | None]:
     return sid, spec or None
 
 
+def merge_ai(*layers: dict | None) -> dict:
+    """Merge AI selections, lowest precedence first. A layer naming another harness drops the provider and model
+    inherited from below (they belong to the old harness); effort carries over."""
+    out: dict = {}
+    for layer in layers:
+        if not layer:
+            continue
+        if layer.get("harness") and layer["harness"] != out.get("harness"):
+            out.pop("provider", None)
+            out.pop("model", None)
+        out.update(layer)
+    return out
+
+
 class Registry:
     def __init__(self, root: Path | None = None):
         self.root = Path(root or v.ROOT)
@@ -108,6 +122,13 @@ class Registry:
     def model_policy_for(self, agent_id: str, skill: dict | None, override: str | None = None) -> str:
         agent_override = ((self.config["agents"].get("overrides") or {}).get(agent_id) or {}).get("model_policy")
         return override or (skill or {}).get("model_policy") or agent_override or self.agents[agent_id]["model_policy"]
+
+    def ai_for(self, agent_id: str, skill: dict | None, task_ai: dict | None = None) -> dict:
+        """Resolved AI selection: task > skill > config override > agent > config default (see protocols/ai)."""
+        override = ((self.config["agents"].get("overrides") or {}).get(agent_id) or {}).get("ai")
+        layers = [self.config["models"].get("default_ai"), self.agents[agent_id].get("ai"), override,
+                  (skill or {}).get("ai"), task_ai]
+        return merge_ai(*layers)
 
     def _abs(self, p: str) -> Path:
         p = Path(p).expanduser()

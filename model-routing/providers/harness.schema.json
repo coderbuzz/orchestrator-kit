@@ -61,6 +61,16 @@
           },
           "description": "Argument template; {prompt}, {model}, {cwd} are filled by the adapter."
         },
+        "model_args": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Appended when a model is selected; {model} and {provider} are filled. Absent = the harness cannot select a model per call."
+        },
+        "effort_args": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Appended when an effort is selected; {effort} is filled. Absent = the harness cannot select effort per call."
+        },
         "notes": {
           "type": "string"
         }
@@ -105,6 +115,11 @@
         "type": "string"
       },
       "description": "Model identifiers verified to work with this harness."
+    },
+    "efforts": {
+      "type": "array",
+      "items": {"enum": ["disabled", "low", "medium", "high", "xhigh", "max"]},
+      "description": "Effort levels the harness accepts. Absent = not checked here (the harness validates)."
     },
     "cost_reporting": {
       "enum": [
