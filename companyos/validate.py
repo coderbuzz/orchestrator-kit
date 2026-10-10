@@ -12,7 +12,7 @@ from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
 
 ROOT = Path(__file__).resolve().parent.parent
-SKIP = {".git", ".venv", "tests", "state", "__pycache__"}
+SKIP = {".git", ".venv", "tests", "state", "__pycache__", "native"}
 
 # suffix -> schema path (relative to ROOT)
 KINDS = {
