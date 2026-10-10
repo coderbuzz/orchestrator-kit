@@ -68,6 +68,8 @@ class Company:
                  level: int = 0, decision_options: list[str] | None = None, inputs: dict | None = None, by: str = "ceo") -> dict:
         if agent not in self.reg.agents or agent not in self.reg.enabled_agents:
             raise Refused(f"unknown or disabled agent '{agent}'")
+        if by in self.reg.agents and not self.policy.can_delegate(by, agent):
+            raise Refused(f"decision-rights/delegation-chain: {by} may not assign work to {agent}")
         try:
             sk = self.reg.agent_skill(agent, skill) if skill else None
         except KeyError as e:

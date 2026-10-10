@@ -52,7 +52,6 @@ class Registry:
         found = v.discover(self.root)
         defs = lambda kind: [d for _, d in found.get(kind, [])]  # noqa: E731
         self.agents = {d["id"]: d for d in defs(".agent.yaml")}
-        self.workflows = {d["id"]: d for d in defs(".workflow.yaml")}
         self.model_policies = {d["id"]: d for d in defs(".model-policy.yaml")}
         self.harnesses = {d["id"]: d for d in defs(".harness.yaml")}
         self.capabilities = {c["id"]: c for d in defs(".capabilities.yaml") for c in d["capabilities"]}

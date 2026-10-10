@@ -13,7 +13,6 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from companyos.harness import CallResult  # noqa: E402
-from companyos.orchestrator import Orchestrator  # noqa: E402
 
 SAMPLE = {"list": ["https://a.example/1", "https://b.example/2"], "string": "ok", "object": {"value": 1}, "bool": True}
 
@@ -93,56 +92,3 @@ class FakeHarness:
 
     def calls_for(self, **kw):
         return [c for c in self.calls if all(c.get(k) == v for k, v in kw.items())]
-
-
-class Server:
-    """Local HTTP endpoint so deployment health checks are real requests."""
-
-    def __init__(self):
-        self.httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), type("H", (http.server.BaseHTTPRequestHandler,), {
-            "do_GET": lambda s: (s.send_response(200), s.end_headers(), s.wfile.write(b"ok")), "log_message": lambda *a: None}))
-        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
-        self.url = f"http://127.0.0.1:{self.httpd.server_address[1]}/health"
-
-
-@pytest.fixture
-def server():
-    s = Server()
-    yield s
-    s.httpd.shutdown()
-
-
-@pytest.fixture
-def make(tmp_path):
-    """make(script=..., adapters=...) -> (orchestrator, fake harness). State lives in tmp_path."""
-    def _make(script=None, adapters=None, cost=0.01, delay=0.0, state=None):
-        fake = FakeHarness(script, cost, delay)
-        o = Orchestrator(state_dir=state or tmp_path / "state", invoke=fake, adapters=adapters)
-        fake.orch = o
-        return o, fake
-    return _make
-
-
-def deploy_adapters(url, fail_production=False):
-    def staging(orch, task, params):
-        return {"ok": True, "detail": "staging deployed", "artifact": {"type": "deployment", "title": "staging",
-                "evidence": {"environment": "staging", "url": url, "version": "1.0.0"}}}
-
-    def production(orch, task, params):
-        if fail_production:
-            return {"ok": False, "detail": "rollout failed: health check timeout"}
-        return {"ok": True, "detail": "production deployed", "artifact": {"type": "deployment", "title": "production",
-                "evidence": {"environment": "production", "url": url, "version": "1.0.0"}}}
-    return {"deploy_staging": staging, "deploy_production": production}
-
-
-def events(o, etype=None):
-    return [e for e in o.store.read_log("events.jsonl") if etype is None or e["type"] == etype]
-
-
-def tasks(o, **kw):
-    return [t for t in o.store.all("tasks") if all(t.get(k) == v for k, v in kw.items())]
-
-
-def dumps(x):
-    return json.dumps(x, indent=1, default=str)

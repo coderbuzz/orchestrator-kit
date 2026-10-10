@@ -3,7 +3,7 @@
 verify_task() checks: required artifact types present, every artifact's evidence against
 protocols/artifacts/evidence-requirements.yaml (with special checks that look at the real world: git commit exists,
 URL answers 2xx, sources are URLs), and a decision that picks one of the allowed options.
-Independent (LLM) verification for high-risk steps is a separate task run by another agent (see orchestrator).
+Independent (LLM) verification is a separate task the CEO session gives another agent.
 """
 import subprocess
 import urllib.request

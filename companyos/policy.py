@@ -1,45 +1,41 @@
 """Deterministic policy engine: capabilities, approval levels, approver chain, delegation, state ownership, budgets.
 
 Every `enforcement: deterministic` rule in policies/ is mapped in ENFORCED to the code that enforces it;
-tests/policies/test_policy_engine.py fails if a deterministic rule has no entry.
+tests/policies/test_policy_engine.py fails if a deterministic rule has no entry or an entry names code that does not exist.
 """
 from .registry import ORCHESTRATOR_ONLY_SECTIONS, Registry
 
 ENFORCED = {
     "approval-levels/autonomy-default": "policy.required_level (level 0 needs nothing)",
-    "approval-levels/no-self-escalation": "policy.needs_approval, Orchestrator._resolve_approval",
-    "approval-levels/non-blocking": "Orchestrator: only the requesting task waits",
+    "approval-levels/no-self-escalation": "tools.Company.resolve_approval",
+    "approval-levels/non-blocking": "tools.Company._request_approval (only the requesting task waits)",
     "approval-levels/spend-thresholds": "policy.spend_level",
-    "decision-rights/ceo-decides": "workflow decision steps owned by ceo + Orchestrator._record_decision",
-    "decision-rights/board-reserved": "policy.effect_level",
-    "decision-rights/delegation-chain": "policy.can_delegate",
+    "decision-rights/ceo-decides": "tools.Company._record_decision (decision tasks, options checked by verify.verify_task)",
+    "decision-rights/board-reserved": "policy.effect_level + tools.Company.product_stage",
+    "decision-rights/delegation-chain": "policy.can_delegate in tools.Company.add_task",
     "decision-rights/approver-chain": "policy.approver_for",
     "security-baseline/no-secrets-in-git": "store.redact + tests/policies/test_no_secrets.py",
-    "security-baseline/least-privilege": "policy.check_capability + harness tool mapping",
+    "security-baseline/least-privilege": "policy.check_capability + tools.Company._filter_unauthorized + harness tool mapping",
     "data-protection/redact-secrets": "store.redact on every persisted record",
-    "data-protection/isolated-workspaces": "harness: --safe-mode, workspace outside repo config",
-    "spending/budget-checked": "Orchestrator._charge (BudgetExceeded)",
+    "data-protection/isolated-workspaces": "tools.Company._workspace + claude --safe-mode (harness descriptor)",
+    "spending/budget-checked": "tools.Company._retry_or_fail (over-budget task is not retried)",
     "spending/spend-above-limit-needs-approval": "policy.spend_level",
-    "budget-control/run-budget-required": "workflow schema limits (required)",
-    "budget-control/track-cost": "Orchestrator._charge -> usage.jsonl",
-    "budget-control/overrun-pauses": "Orchestrator._charge",
-    "budget-control/daily-cap": "Orchestrator._daily_cap_reached",
-    "autonomy-limits/bounded-loops": "workflow limits + Orchestrator iteration/task caps",
-    "autonomy-limits/bounded-retries": "Orchestrator._fail_attempt",
-    "autonomy-limits/bounded-fallback": "harness.call_with_fallback",
-    "autonomy-limits/deadline": "Orchestrator._check_deadlines",
-    "audit-trail/audit-record": "Orchestrator.audit",
+    "budget-control/run-budget-required": "tools.Company.add_task (default budget = spending cap)",
+    "budget-control/track-cost": "tools.Company.dispatch -> usage.jsonl",
+    "budget-control/daily-cap": "tools.Company.dispatch (daily-cap refusal)",
+    "autonomy-limits/bounded-retries": "tools.Company.start / _retry_or_fail",
+    "autonomy-limits/bounded-fallback": "harness.Router.call_with_fallback",
+    "audit-trail/audit-record": "tools.Company.audit",
     "audit-trail/append-only": "store.append",
-    "evidence-and-decisions/evidence-over-claims": "verify.verify_task + task schema",
-    "evidence-and-decisions/versioned-changes": "tests/contracts/test_versions.py",
+    "evidence-and-decisions/evidence-over-claims": "verify.verify_task in tools.Company._process",
     "deployment-gates/staging-first": "policy.deployment_gate",
     "deployment-gates/tests-green": "policy.deployment_gate",
     "deployment-gates/production-approval": "capability deploy_production min_approval_level",
-    "incident-management/deploy-failure-incident": "workflows/operations/incident-response trigger",
-    "incident-management/no-blind-retry-of-deploys": "Orchestrator._execute_actions (irreversible failure -> FAILED)",
+    "incident-management/deploy-failure-incident": "tools.Company._process (irreversible failure -> FAILED + Board inbox)",
+    "incident-management/no-blind-retry-of-deploys": "tools.Company._execute_actions / _process",
     "external-communication/customer-actions-gated": "capability min_approval_level for send_email/publish_content",
-    "board-reporting/summarize": "board.status_report (schema-validated)",
-    "board-reporting/level-3-notify": "Orchestrator._request_approval / effect notify",
+    "board-reporting/summarize": "board.snapshot (schema-validated)",
+    "board-reporting/level-3-notify": "tools.Company._process (level-3 notice) / _request_approval (Board inbox)",
 }
 
 
