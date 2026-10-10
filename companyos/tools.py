@@ -6,7 +6,7 @@ an agent's capabilities or above its authority, a side effect repeated after a c
 write outside an agent's scope, an invalid product stage change. A refusal raises `Refused` with the reason.
 
 Work is done either by the orchestrator's own subagents (native/: `task start`, then `task submit` with the agent-result
-JSON) or by a worker harness (`dispatch`: claude -p / zh -p with the task's AI selection, then submit). CLI: companyos.cli.
+JSON) or by a worker harness (`dispatch`: claude -p / zh -p with the task's AI selection, then submit). Exposed to sessions by the MCP server in companyos.mcp.
 """
 import json
 from pathlib import Path
@@ -27,8 +27,40 @@ class Refused(Exception):
     """A guardrail said no. The message is the reason."""
 
 
+PROJECT_FILE = "company.yaml"  # <workspace>/<project>/company.yaml; state in <workspace>/<project>/.company/
+
+
+def projects(workspace: Path) -> dict[str, Path]:
+    """Workspace projects the company runs: folders holding a company.yaml."""
+    return {p.parent.name: p.parent for p in sorted(Path(workspace).glob(f"*/{PROJECT_FILE}"))}
+
+
 class Company:
+    @classmethod
+    def for_project(cls, project_dir: Path, **kw) -> "Company":
+        """The company as configured for one workspace project: its own state, budget, agents and default AI."""
+        project_dir = Path(project_dir)
+        cfg = yaml.safe_load((project_dir / PROJECT_FILE).read_text()) or {}
+        if errs := errors_for(validator_for(load(ROOT / "company/project.schema.json")), cfg):
+            raise Refused(f"{project_dir / PROJECT_FILE}: {errs[:3]}")
+        c = cls(state_dir=project_dir / ".company" / "state", **kw)
+        c.project_dir = project_dir
+        conf = c.reg.config
+        spending = {**(conf["policies"].get("parameters") or {}).get("spending", {}),
+                    **({"max_cost_usd_per_day": cfg["daily_budget_usd"]} if "daily_budget_usd" in cfg else {}),
+                    **({"max_cost_usd_per_task": cfg["task_budget_usd"]} if "task_budget_usd" in cfg else {})}
+        conf["policies"] = {**conf["policies"], "parameters": {**(conf["policies"].get("parameters") or {}), "spending": spending}}
+        if "agents" in cfg:
+            unknown = set(cfg["agents"]) - set(c.reg.agents)
+            if unknown:
+                raise Refused(f"{project_dir / PROJECT_FILE}: unknown agents {sorted(unknown)}")
+            conf["agents"] = {**conf["agents"], "enabled": [a for a in conf["agents"].get("enabled", []) if a in cfg["agents"]]}
+        if "default_ai" in cfg:
+            conf["models"] = {**conf["models"], "default_ai": cfg["default_ai"]}
+        return c
+
     def __init__(self, root: Path | None = None, state_dir: Path | None = None, invoke=None, adapters=None):
+        self.project_dir: Path | None = None
         self.reg = Registry(root)
         self.store = Store(state_dir or self.reg.state_dir)
         self.workspaces_dir = (Path(state_dir) / "workspaces") if state_dir else self.reg.workspaces_dir
@@ -208,6 +240,12 @@ class Company:
         return {"status": "FAILED", "notes": [reason]}
 
     def _workspace(self, t: dict) -> Path:
+        """Where a worker runs: inputs.workdir inside the project (e.g. one of its repos), else a scratch dir per initiative."""
+        if self.project_dir and t["inputs"].get("workdir"):
+            ws = (self.project_dir / t["inputs"]["workdir"]).resolve()
+            if not ws.is_relative_to(self.project_dir.resolve()):
+                raise Refused(f"workdir {t['inputs']['workdir']} is outside the project")
+            return ws
         ws = self.workspaces_dir / (t["inputs"].get("product_id") or t["parent_task_id"] or t["task_id"])
         ws.mkdir(parents=True, exist_ok=True)
         return ws

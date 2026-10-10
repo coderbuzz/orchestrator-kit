@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "company-os/project/1",
+  "title": "A workspace project run by the company (<workspace>/<project>/company.yaml)",
+  "description": "Per-project overrides of the company config. State lives next to it in .company/ (never committed).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name"],
+  "properties": {
+    "name": {"type": "string", "minLength": 1},
+    "description": {"type": "string"},
+    "daily_budget_usd": {"type": "number", "minimum": 0, "description": "Overrides spending.max_cost_usd_per_day for this project."},
+    "task_budget_usd": {"type": "number", "minimum": 0, "description": "Overrides spending.max_cost_usd_per_task for this project."},
+    "agents": {"type": "array", "items": {"type": "string"}, "description": "Agents this project may use (default: all enabled)."},
+    "default_ai": {"$ref": "../ai/1", "description": "Lowest-precedence AI selection for this project."}
+  }
+}
