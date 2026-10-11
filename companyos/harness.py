@@ -44,6 +44,7 @@ class CallResult:
     raw: str = field(default="", repr=False)
     provider: str | None = None
     effort: str | None = None
+    tokens: dict = field(default_factory=dict)  # zh --json usage (input/output/cache/reasoning)
 
 
 class Unavailable(Exception):
@@ -154,7 +155,37 @@ RETRYABLE = ("no agent-result JSON", "result violates agent-result contract")  #
 BUILDERS = {"claude-code": build_claude, "zcode": build_zcode}
 
 
-def parse(harness_id: str, stdout: str) -> tuple[dict | None, float | None, str]:
+def price_for(hdef: dict, provider: str | None, model: str) -> dict | None:
+    """Pricing entry ({in, cache_hit, out} or {flat: true}) of a route, or None when the descriptor has none."""
+    table = hdef.get("pricing_usd_per_mtok") or {}
+    return table.get(f"{provider}/{model}") or table.get(f"{provider}/*")
+
+
+def token_cost(price: dict | None, usage: dict) -> float | None:
+    """USD for one call from zh `--json` usage; None = unpriced (caller falls back to the estimate)."""
+    if not price:
+        return None
+    if price.get("flat"):
+        return 0.0
+    hit = usage.get("cacheReadTokens") or 0
+    return round(((usage.get("inputTokens") or 0) - hit) * price["in"] / 1e6 + hit * price.get("cache_hit", price["in"]) / 1e6
+                 + (usage.get("outputTokens") or 0) * price["out"] / 1e6, 6)
+
+
+def parse_zcode_json(stdout: str) -> tuple[str, dict]:
+    """zh `--json` -> (response text, usage). Anything else is returned as plain text with no usage."""
+    i = stdout.find("{")
+    if i >= 0:
+        try:
+            d, _ = json.JSONDecoder().raw_decode(stdout, i)
+            if isinstance(d, dict) and "response" in d:
+                return d.get("response") or "", d.get("usage") or {}
+        except ValueError:
+            pass
+    return stdout, {}
+
+
+def parse(harness_id: str, stdout: str, price: dict | None = None) -> tuple[dict | None, float | None, str]:
     """-> (agent result, exact cost or None, error)."""
     if harness_id == "claude-code":
         try:
@@ -166,8 +197,9 @@ def parse(harness_id: str, stdout: str) -> tuple[dict | None, float | None, str]
             return None, cost, f"claude error: {d.get('subtype')} {str(d.get('result'))[:300]}"
         out = d.get("structured_output") or extract_json(d.get("result") or "")
         return out, cost, "" if out else "no agent-result JSON in claude output"
-    out = extract_json(stdout)
-    return out, None, "" if out else "no agent-result JSON in output"
+    text, usage = parse_zcode_json(stdout) if harness_id == "zcode" else (stdout, {})
+    out = extract_json(text)
+    return out, token_cost(price, usage) if usage else None, "" if out else "no agent-result JSON in output"
 
 
 def invoke(hdef: dict, model: str, req: Request, schema: dict) -> CallResult:
@@ -187,11 +219,13 @@ def invoke(hdef: dict, model: str, req: Request, schema: dict) -> CallResult:
             return CallResult(False, hdef["id"], model, error=f"cannot start harness: {e}")
         out.seek(0)
         stdout = out.read()
-    output, cost, err = parse(hdef["id"], stdout)
+    output, cost, err = parse(hdef["id"], stdout, price_for(hdef, req.provider, model))
+    usage = parse_zcode_json(stdout)[1] if hdef["id"] == "zcode" else {}
     if p.returncode != 0 and (not err or not stdout.strip()):
         err = f"exit {p.returncode}: {p.stderr.strip()[-300:] or err}"
     return CallResult(not err, hdef["id"], model, output=output, error=err, cost_usd=cost or 0.0,
-                      cost_estimated=cost is None, duration_s=time.time() - t0, raw=stdout[-4000:])
+                      cost_estimated=cost is None, duration_s=time.time() - t0, raw=stdout[-4000:],
+                      tokens={k: usage[k] for k in ("inputTokens", "outputTokens", "cacheReadTokens", "reasoningTokens") if k in usage})
 
 
 class Router:
@@ -263,7 +297,7 @@ class Router:
             for retry in (False, True):
                 r = invoke_fn(hdef, model, this, self.reg.result_schema)
                 r.provider, r.effort = rt.provider, effort
-                if r.ok and r.cost_estimated and hdef.get("cost_reporting") == "none":
+                if r.ok and r.cost_estimated and hdef.get("cost_reporting") in ("none", "tokens"):  # unpriced route: config estimate
                     r.cost_usd = hcfg.get("estimated_cost_usd_per_call") or 0.0
                 if r.ok:
                     errs = [e.message for e in self._validator.iter_errors(r.output)]

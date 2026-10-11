@@ -124,9 +124,24 @@
     "cost_reporting": {
       "enum": [
         "exact",
+        "tokens",
         "none"
       ],
-      "description": "exact = harness returns cost per call; none = runtime uses config estimated_cost_usd_per_call."
+      "description": "exact = harness returns cost per call; tokens = harness returns token usage, cost = tokens x pricing_usd_per_mtok (flat/free plans: 0); none = runtime uses config estimated_cost_usd_per_call."
+    },
+    "pricing_usd_per_mtok": {
+      "type": "object",
+      "description": "cost_reporting=tokens: '<provider>/<model>' (or '<provider>/*') -> {in, cache_hit, out} USD per million tokens, or {flat: true} for flat-rate or free plans (cost 0, usage still recorded). A route without an entry falls back to the config estimate.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "in": {"type": "number", "minimum": 0},
+          "cache_hit": {"type": "number", "minimum": 0},
+          "out": {"type": "number", "minimum": 0},
+          "flat": {"type": "boolean"}
+        }
+      }
     }
   }
 }
