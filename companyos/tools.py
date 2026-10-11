@@ -474,7 +474,8 @@ class Company:
         ai = self.reg.ai_for(agent["id"], skill, t.get("ai"))
         policy_id = self.reg.model_policy_for(agent["id"], skill, t.get("model_policy"))
         try:
-            attempts = self.router.call_with_fallback(policy_id, req, self.invoke, ai=ai)
+            attempts = self.router.call_with_fallback(policy_id, req, self.invoke, ai=ai,
+                                                      fallbacks=self.reg.mapped_fallbacks(agent["id"], (skill or {}).get("id")))
         except harness.Unavailable as e:
             with self.store.tx():
                 t = self.task(task_id)
@@ -487,7 +488,7 @@ class Company:
             t = self.task(task_id)
             for a in attempts:
                 self.store.append("usage.jsonl", {"at": now(), "task_id": task_id, "agent": t["assigned_agent"], "harness": a.harness,
-                                                  "model": a.model, "effort": ai.get("effort"), "cost_usd": a.cost_usd, "estimated": a.cost_estimated,
+                                                  "model": a.model, "provider": a.provider, "effort": a.effort or ai.get("effort"), "cost_usd": a.cost_usd, "estimated": a.cost_estimated,
                                                   "ok": a.ok, "duration_s": round(a.duration_s, 1), "error": a.error[:300]})
                 t["cost_usd"] = round(t["cost_usd"] + a.cost_usd, 6)
             self.store.put("tasks", t)

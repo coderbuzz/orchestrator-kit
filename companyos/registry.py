@@ -131,6 +131,14 @@ class Registry:
                   self.mapped_ai(agent_id, sid), (skill or {}).get("ai"), task_ai]
         return merge_ai(*layers)
 
+    def mapped_fallbacks(self, agent_id: str, skill_id: str | None = None) -> list[dict]:
+        """Ordered fallback selections of the approved mapping entry (skill entry first, else the agent's); [] if none."""
+        for sk in ([skill_id] if skill_id else []) + [None]:
+            for e in self.mapping.get("entries", []):
+                if e["status"] == "approved" and e["agent"] == agent_id and e.get("skill") == sk:
+                    return [f["ai"] for f in e["fallbacks"]]
+        return []
+
     def mapped_ai(self, agent_id: str, skill_id: str | None = None) -> dict | None:
         """AI selection from the Board-approved agent mapping; proposed entries never apply."""
         for e in self.mapping.get("entries", []):

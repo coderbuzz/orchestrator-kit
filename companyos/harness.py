@@ -42,6 +42,8 @@ class CallResult:
     cost_estimated: bool = False
     duration_s: float = 0.0
     raw: str = field(default="", repr=False)
+    provider: str | None = None
+    effort: str | None = None
 
 
 class Unavailable(Exception):
@@ -54,6 +56,7 @@ class Route:
     model: str
     cfg: dict
     provider: str | None = None
+    effort: str | None = None  # set for approved-mapping fallbacks; None = the resolved selection's effort
 
 
 def unsupported(hdef: dict, model: str | None, provider: str | None, effort: str | None) -> str | None:
@@ -126,11 +129,20 @@ def build_claude(hdef, model, req: Request, schema: dict) -> list[str]:
     return [hdef["invocation"]["command"], *args]
 
 
+CONTRACT_GUIDE = """Rules for the JSON object (it is machine-validated; extra or wrongly shaped keys make the whole result rejected):
+- Allowed top-level keys only: status, summary, artifacts, decision, verdict, findings, actions, state_updates, memory_notes, follow_up_tasks, plan, blocked_reason, metrics. Omit every key you do not need.
+- `actions` is ONLY for actions you ask the orchestrator to perform: [{"capability": "<capability id>", "reason": "..."}]. It is not a log of what you did; omit it otherwise.
+- `findings` is a list of plain strings, never objects. `follow_up_tasks`/`plan` items need key (kebab-case), objective, agent, acceptance_criteria (list of strings).
+- Each artifact is {"type", "title", "content" (markdown), "evidence" (object with the keys that artifact type requires)}.
+Valid example:
+{"status": "completed", "summary": "Researched X; two sources agree.", "artifacts": [{"type": "research_report", "title": "X market", "content": "# X\\n...", "evidence": {"sources": ["https://example.com/a", "https://example.com/b"], "findings": ["finding one"], "confidence": 0.7}}]}"""
+
+
 def build_zcode(hdef, model, req: Request, schema: dict) -> list[str]:
     caps = set(req.capabilities)
     mode = "yolo" if caps & {"execute_command", "run_tests"} else "edit" if "write_repository" in caps else "plan"
     prompt = (f"{req.system_prompt}\n\n---\n\n{req.prompt}\n\nReturn ONLY one JSON object matching this schema:\n"
-              f"{json.dumps(schema)}")
+              f"{json.dumps(schema)}\n\n{CONTRACT_GUIDE}")
     args = _fill(hdef["invocation"]["non_interactive_args"], {"cwd": req.cwd, "mode": mode})
     args = [prompt if a == "{prompt}" else a for a in args]
     if not caps & {"execute_command", "run_tests"}:
@@ -138,6 +150,7 @@ def build_zcode(hdef, model, req: Request, schema: dict) -> list[str]:
     return [hdef["invocation"]["command"], *args]
 
 
+RETRYABLE = ("no agent-result JSON", "result violates agent-result contract")  # worth one corrective retry on the same route
 BUILDERS = {"claude-code": build_claude, "zcode": build_zcode}
 
 
@@ -195,15 +208,20 @@ class Router:
         return (h.get("failures", 0) >= fb.get("circuit_breaker_failures", 3)
                 and time.time() - h.get("since", 0) < fb.get("circuit_breaker_seconds", 600))
 
-    def route(self, policy_id: str, ai: dict | None = None) -> list[Route]:
-        """Routes in preference order: the resolved AI selection first (if it names a harness), then the model policy
-        candidates as fallbacks. Empty = nothing routable."""
+    def route(self, policy_id: str, ai: dict | None = None, fallbacks: list[dict] | None = None) -> list[Route]:
+        """Routes in preference order: the resolved AI selection first (if it names a harness), then the Board-approved
+        mapping fallbacks (each with its own effort), then the model policy candidates. Empty = nothing routable."""
         enabled = self.reg.enabled_harnesses()
         cands = list(self.reg.model_policies[policy_id]["candidates"])
+        lead = []
         if ai and ai.get("harness"):
-            first = {"harness": ai["harness"], "model": ai.get("model") or (enabled.get(ai["harness"]) or {}).get("default_model"),
-                     "provider": ai.get("provider")}
-            cands = [first] + [c for c in cands if (c["harness"], c["model"]) != (first["harness"], first["model"])]
+            lead.append({"harness": ai["harness"], "model": ai.get("model") or (enabled.get(ai["harness"]) or {}).get("default_model"),
+                         "provider": ai.get("provider")})
+        lead += [{"harness": f["harness"], "model": f.get("model") or (enabled.get(f["harness"]) or {}).get("default_model"),
+                  "provider": f.get("provider"), "effort": f.get("effort")} for f in fallbacks or [] if f.get("harness")]
+        seen = {(c["harness"], c.get("provider"), c["model"], c.get("effort")) for c in lead}
+        cands = lead + [c for c in cands if (c["harness"], c.get("provider"), c["model"], None) not in seen
+                        and (c["harness"], c["model"]) not in {(x["harness"], x["model"]) for x in lead}]
         out = []
         for c in cands:
             hdef, hcfg = self.reg.harnesses.get(c["harness"]), enabled.get(c["harness"])
@@ -211,7 +229,7 @@ class Router:
                 continue
             if self.check_installed and not shutil.which(hdef["invocation"]["command"]):
                 continue
-            out.append(Route(hdef, c["model"], hcfg, c.get("provider")))
+            out.append(Route(hdef, c["model"], hcfg, c.get("provider"), c.get("effort")))
         return out
 
     def _record(self, harness_id: str, ok: bool):
@@ -222,32 +240,41 @@ class Router:
             h["failures"] += 1
             h["since"] = h["since"] or time.time()
 
-    def call_with_fallback(self, policy_id: str, req: Request, invoke_fn=invoke, which=None, ai: dict | None = None) -> list[CallResult]:
+    def call_with_fallback(self, policy_id: str, req: Request, invoke_fn=invoke, which=None, ai: dict | None = None,
+                           fallbacks: list[dict] | None = None) -> list[CallResult]:
         """All attempts in order; the last one is the outcome. Raises Unavailable if nothing is routable.
-        A route that cannot honour the selection (provider/model/effort) is recorded as a failed attempt without a call."""
-        routes = self.route(policy_id, ai) if which is None else which
+        A route that cannot honour the selection (provider/model/effort) is recorded as a failed attempt without a call.
+        An answer with no result object or one that breaks the contract gets ONE corrective retry on the same route
+        (the rejection reason is fed back) before the next route is tried."""
+        routes = self.route(policy_id, ai, fallbacks) if which is None else which
         if not routes:
             raise Unavailable(f"no enabled, installed harness for model policy '{policy_id}'")
         limit = (self.cfg.get("fallback") or {}).get("max_candidates_per_attempt", 3)
-        effort = (ai or {}).get("effort")
         attempts = []
         for rt in routes[:limit]:
             hdef, model, hcfg = rt.hdef, rt.model, rt.cfg
+            effort = rt.effort or (ai or {}).get("effort")
             why = unsupported(hdef, model, rt.provider, effort)
             if why:
-                attempts.append(CallResult(False, hdef["id"], model, error=f"unsupported selection: {why}"))
+                attempts.append(CallResult(False, hdef["id"], model, error=f"unsupported selection: {why}", provider=rt.provider, effort=effort))
                 continue
-            r = invoke_fn(hdef, model, Request(**{**req.__dict__, "provider": rt.provider, "effort": effort,
-                                                  "timeout_seconds": min(req.timeout_seconds, hcfg.get("timeout_seconds", 1800))}),
-                          self.reg.result_schema)
-            if r.ok and r.cost_estimated and hdef.get("cost_reporting") == "none":
-                r.cost_usd = hcfg.get("estimated_cost_usd_per_call") or 0.0
-            if r.ok:
-                errs = [e.message for e in self._validator.iter_errors(r.output)]
-                if errs:
-                    r.ok, r.error = False, f"result violates agent-result contract: {errs[:2]}"
-            self._record(hdef["id"], r.ok)
-            attempts.append(r)
-            if r.ok:
+            this = Request(**{**req.__dict__, "provider": rt.provider, "effort": effort,
+                              "timeout_seconds": min(req.timeout_seconds, hcfg.get("timeout_seconds", 1800))})
+            for retry in (False, True):
+                r = invoke_fn(hdef, model, this, self.reg.result_schema)
+                r.provider, r.effort = rt.provider, effort
+                if r.ok and r.cost_estimated and hdef.get("cost_reporting") == "none":
+                    r.cost_usd = hcfg.get("estimated_cost_usd_per_call") or 0.0
+                if r.ok:
+                    errs = [e.message for e in self._validator.iter_errors(r.output)]
+                    if errs:
+                        r.ok, r.error = False, f"result violates agent-result contract: {errs[:2]}"
+                self._record(hdef["id"], r.ok)
+                attempts.append(r)
+                if r.ok or retry or not r.error.startswith(RETRYABLE):
+                    break
+                this = Request(**{**this.__dict__, "prompt": f"{req.prompt}\n\nYour previous answer was rejected: {r.error[:400]}\n"
+                                                              "Answer again with ONLY one corrected JSON object."})
+            if attempts[-1].ok:
                 break
         return attempts
