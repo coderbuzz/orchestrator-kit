@@ -23,6 +23,12 @@ from .validate import AI_SCHEMA, ROOT, errors_for, load, validate_instance, vali
 TERMINAL = {"COMPLETED", "FAILED", "CANCELLED"}
 
 
+def subagent_name(reg: Registry, agent_id: str) -> str:
+    """The plugin subagent that executes an agent's tasks. The orchestrator (CEO) is the conversation session, which does not
+    decide: its tasks run in `ceo-decision`, a subagent on the strongest model."""
+    return f"{agent_id}-decision" if reg.agents[agent_id]["type"] == "orchestrator" else agent_id
+
+
 class Refused(Exception):
     """A guardrail said no. The message is the reason."""
 

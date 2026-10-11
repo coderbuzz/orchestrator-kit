@@ -189,7 +189,25 @@ def _semantic_checks(found) -> list[str]:
         errs += [f"{rel(path)}: unknown output artifact type '{o}'" for o in s["outputs"] if o not in art_types]
     for path, h in found.get(".harness.yaml", []):
         errs += [f"{rel(path)}: capability_tools names unknown capability '{c}'" for c in (h.get("capability_tools") or {}) if c not in reg.capabilities]
-    errs += _ai_checks(reg)
+    errs += _ai_checks(reg) + _candidate_checks(reg)
+    return errs
+
+
+def _candidate_checks(reg) -> list[str]:
+    """Model policy candidates must name a provider and model their harness really offers (zh: `zh providers`)."""
+    errs = []
+    for pid, m in reg.model_policies.items():
+        for c in m["candidates"]:
+            h = reg.harnesses.get(c["harness"])
+            if h is None:
+                continue  # unknown harness is reported elsewhere
+            if c.get("provider") and c["provider"] not in {p["id"] for p in h["providers"]}:
+                errs.append(f"model policy {pid}: harness {h['id']} does not offer provider '{c['provider']}'")
+            if h.get("models") and c["model"] not in h["models"]:
+                errs.append(f"model policy {pid}: harness {h['id']} has no verified model '{c['model']}'")
+            if h["invocation"].get("model_args") and any("{provider}" in a for a in h["invocation"]["model_args"]) \
+                    and c["model"] != "configured" and not c.get("provider"):
+                errs.append(f"model policy {pid}: {h['id']} candidate '{c['model']}' needs a provider")
     return errs
 
 

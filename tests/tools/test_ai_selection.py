@@ -40,6 +40,31 @@ def test_unsupported_selection_is_visible_and_falls_back():
     assert "does not accept effort 'disabled'" in harness.unsupported(o.reg.harnesses["claude-code"], "opus", None, "disabled")
 
 
+def test_zh_built_in_models_and_opus_only_decisions():
+    z = REG.harnesses["zcode"]
+    glm = {"provider": "account:zai-individual-coding-plan", "model": "GLM-5.3"}
+    assert harness.selection_args(z, glm["model"], harness.Request("", "", ".", [], None, 10, provider=glm["provider"], effort="high")) == \
+        ["--model", "account:zai-individual-coding-plan/GLM-5.3", "--effort", "high"]
+    assert harness.unsupported(z, "GLM-5.3", glm["provider"], "high") is None
+    assert validate._candidate_checks(REG) == []
+    # every policy except strategic ends in a zh built-in model; strategic is Opus only (a decision is blocked, not downgraded)
+    models = {p: [(c["harness"], c["model"]) for c in m["candidates"]] for p, m in REG.model_policies.items()}
+    assert models["strategic"] == [("claude-code", "opus"), ("zcode", "claude-opus-5")]
+    assert ("zcode", "GLM-5.3-Flash") in models["cheap"] and ("zcode", "GLM-5.3") in models["coding"]
+    assert not any(m == "configured" for c in models.values() for _, m in c)
+
+
+def test_candidate_with_unknown_provider_or_model_is_rejected():
+    reg = copy.copy(REG)
+    bad = {**REG.model_policies["coding"], "candidates": [{"harness": "zcode", "model": "GLM-9", "provider": "zai"},
+                                                          {"harness": "zcode", "model": "GLM-5.3"}]}
+    reg.model_policies = {**REG.model_policies, "coding": bad}
+    errs = validate._candidate_checks(reg)
+    assert "model policy coding: harness zcode does not offer provider 'zai'" in errs
+    assert "model policy coding: harness zcode has no verified model 'GLM-9'" in errs
+    assert "model policy coding: zcode candidate 'GLM-5.3' needs a provider" in errs
+
+
 def test_validator_rejects_selection_a_harness_cannot_honour():
     o = types.SimpleNamespace(reg=REG)
     reg = copy.copy(o.reg)
