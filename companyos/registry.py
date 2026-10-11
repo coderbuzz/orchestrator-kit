@@ -57,6 +57,7 @@ class Registry:
         self.capabilities = {c["id"]: c for d in defs(".capabilities.yaml") for c in d["capabilities"]}
         self._skills = self._by_version(defs(".skill.yaml"))
         self._policies = self._by_version(defs(".policy.yaml"))
+        self.mapping = next(iter(defs("agent-mapping.yaml")), {})  # only status 'approved' entries are used (see mapped_ai)
         self.config = {}
         for kind in ("company", "models", "agents", "policies", "environments"):
             items = {p.name: d for p, d in found.get(f"config:{kind}", [])}
@@ -123,11 +124,19 @@ class Registry:
         return override or (skill or {}).get("model_policy") or agent_override or self.agents[agent_id]["model_policy"]
 
     def ai_for(self, agent_id: str, skill: dict | None, task_ai: dict | None = None) -> dict:
-        """Resolved AI selection: task > skill > config override > agent > config default (see protocols/ai)."""
+        """Resolved AI selection: task > skill > approved skill mapping > config override > approved agent mapping > agent > config default (see protocols/ai)."""
         override = ((self.config["agents"].get("overrides") or {}).get(agent_id) or {}).get("ai")
-        layers = [self.config["models"].get("default_ai"), self.agents[agent_id].get("ai"), override,
-                  (skill or {}).get("ai"), task_ai]
+        sid = (skill or {}).get("id")
+        layers = [self.config["models"].get("default_ai"), self.agents[agent_id].get("ai"), self.mapped_ai(agent_id), override,
+                  self.mapped_ai(agent_id, sid), (skill or {}).get("ai"), task_ai]
         return merge_ai(*layers)
+
+    def mapped_ai(self, agent_id: str, skill_id: str | None = None) -> dict | None:
+        """AI selection from the Board-approved agent mapping; proposed entries never apply."""
+        for e in self.mapping.get("entries", []):
+            if e["status"] == "approved" and e["agent"] == agent_id and e.get("skill") == skill_id:
+                return e["ai"]
+        return None
 
     def _abs(self, p: str) -> Path:
         p = Path(p).expanduser()

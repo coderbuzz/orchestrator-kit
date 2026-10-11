@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "company-os/agent-mapping/1",
+  "title": "Agent -> provider/model/effort mapping and provider policy, both gated by Board approval",
+  "description": "Only entries with status 'approved' take effect (Registry.ai_for). 'approved' requires an approval block quoting the Board's consent; 'proposed' is inert data.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "entries", "provider_policy"],
+  "$defs": {
+    "approval": {"type": "object", "additionalProperties": false, "required": ["by", "at", "quote"],
+      "properties": {"by": {"type": "string", "minLength": 1}, "at": {"type": "string", "minLength": 8}, "quote": {"type": "string", "minLength": 1, "description": "The Board's own words approving this item."}}},
+    "status": {"enum": ["proposed", "approved"]}
+  },
+  "properties": {
+    "schema": {"const": "company-os/agent-mapping/1"},
+    "profiling": {"type": "object", "description": "Where the evidence comes from (run date, REPORT path)."},
+    "entries": {"type": "array", "items": {
+      "type": "object", "additionalProperties": false, "required": ["agent", "ai", "fallbacks", "quality_threshold", "evidence", "status"],
+      "properties": {
+        "agent": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+        "skill": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$", "description": "Optional: entry applies to this skill of the agent only."},
+        "ai": {"$ref": "../ai/1"},
+        "fallbacks": {"type": "array", "description": "Ordered; each with its own effort.", "items": {
+          "type": "object", "additionalProperties": false, "required": ["ai", "when"],
+          "properties": {"ai": {"$ref": "../ai/1"}, "when": {"type": "string"}}}},
+        "quality_threshold": {"type": "object", "description": "Pass criteria this mapping must meet; below it: use the Claude harness."},
+        "evidence": {"type": "array", "minItems": 1, "items": {"type": "string"}, "description": "Run ids / task ids in profiling/runs/."},
+        "rationale": {"type": "string"},
+        "status": {"$ref": "#/$defs/status"},
+        "approval": {"$ref": "#/$defs/approval"}
+      },
+      "if": {"properties": {"status": {"const": "approved"}}, "required": ["status"]},
+      "then": {"required": ["approval"]}}},
+    "provider_policy": {
+      "type": "object", "additionalProperties": false, "required": ["order", "rules", "status"],
+      "properties": {
+        "order": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["id", "provider", "switch_when"],
+          "properties": {"id": {"type": "string"}, "provider": {"type": "string"}, "switch_when": {"type": "string"}}}},
+        "rules": {"type": "array", "items": {"type": "string"}},
+        "status": {"$ref": "#/$defs/status"},
+        "approval": {"$ref": "#/$defs/approval"}
+      },
+      "if": {"properties": {"status": {"const": "approved"}}, "required": ["status"]},
+      "then": {"required": ["approval"]}}
+  }
+}

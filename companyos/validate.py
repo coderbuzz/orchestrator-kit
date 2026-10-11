@@ -22,6 +22,7 @@ KINDS = {
     ".capabilities.yaml": "tools/capabilities/capability.schema.json",
     ".model-policy.yaml": "model-routing/model-policy.schema.json",
     ".harness.yaml": "model-routing/providers/harness.schema.json",
+    "agent-mapping.yaml": "model-routing/mappings/agent-mapping.schema.json",
 }
 # protocol instances (used by tests and runtime), keyed by name
 PROTOCOLS = {
@@ -214,11 +215,19 @@ def _candidate_checks(reg) -> list[str]:
 def _ai_checks(reg) -> list[str]:
     """Every AI selection in definitions and config must be one its harness can honour (protocols/ai)."""
     from .harness import unsupported
+    errs_extra: list[str] = []
     sels = [(f"agent {a}", d.get("ai")) for a, d in reg.agents.items()]
     sels += [(f"skill {s['id']}@{s['version']}", s.get("ai")) for lst in reg._skills.values() for s in lst]
     sels += [("config models.default_ai", reg.config["models"].get("default_ai"))]
+    for e in reg.mapping.get("entries", []):
+        who = f"mapping {e['agent']}" + (f"/{e['skill']}" if e.get("skill") else "")
+        sels += [(who, e["ai"])] + [(f"{who} fallback", f["ai"]) for f in e["fallbacks"]]
+        if e["agent"] not in reg.agents:
+            errs_extra.append(f"{who}: unknown agent")
+        elif e.get("skill") and not any(s["id"] == e["skill"] for s in reg.agents[e["agent"]]["skills"]):
+            errs_extra.append(f"{who}: agent does not hold skill '{e['skill']}'")
     sels += [(f"config agents.overrides.{a}", (o or {}).get("ai")) for a, o in (reg.config["agents"].get("overrides") or {}).items()]
-    errs = []
+    errs = errs_extra
     for where, ai in sels:
         if not ai:
             continue
