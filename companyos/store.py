@@ -2,9 +2,9 @@
 
 Layout under the state dir:
   company.json                      shared company state (company/state.schema.json)
-  <collection>/<id>.json            tasks, runs, approvals, decisions, artifacts, directives
+  <collection>/<id>.json            tasks, approvals, decisions, artifacts
   artifacts/<id>.md                 artifact bodies
-  events.jsonl audit.jsonl usage.jsonl ledger.jsonl board/inbox.jsonl memory/<dept>.jsonl   (append-only)
+  audit.jsonl usage.jsonl ledger.jsonl board/inbox.jsonl memory/<dept>.jsonl   (append-only)
 
 Writes are atomic (tmp + rename) under one lock (thread + fcntl), so a crash never leaves a half-written record
 and a CLI process can safely act while the runner runs. Everything persisted passes through redact().
@@ -24,7 +24,7 @@ from . import validate as v
 SECRET_PATTERNS = [r"ghp_[A-Za-z0-9]{20,}", r"github_pat_[A-Za-z0-9_]{20,}", r"sk-[A-Za-z0-9_-]{20,}", r"AKIA[0-9A-Z]{16}",
                    r"-----BEGIN [A-Z ]*PRIVATE KEY-----", r"xox[bp]-[A-Za-z0-9-]{10,}", r"AIza[0-9A-Za-z_-]{30,}"]
 _SECRET_RE = re.compile("|".join(SECRET_PATTERNS))
-SCHEMAS = {"tasks": "task", "approvals": "approval", "decisions": "decision", "artifacts": "artifact", "runs": "run"}
+SCHEMAS = {"tasks": "task", "approvals": "approval", "decisions": "decision", "artifacts": "artifact"}
 
 
 def redact(text: str) -> str:

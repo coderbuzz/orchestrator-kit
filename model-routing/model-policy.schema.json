@@ -4,7 +4,7 @@
   "title": "Model policy (file suffix: .model-policy.yaml)",
   "type": "object",
   "additionalProperties": false,
-  "required": ["id", "name", "version", "requirements", "preferences", "candidates"],
+  "required": ["id", "name", "version", "candidates"],
   "properties": {
     "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
     "name": {"type": "string"},

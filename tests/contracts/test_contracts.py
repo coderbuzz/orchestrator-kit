@@ -10,7 +10,6 @@ from companyos import validate as v
 NOW = "2026-10-07T00:00:00Z"
 TASK = {"task_id": "task-001", "parent_task_id": None, "objective": "o", "assigned_agent": "example-agent", "created_by": "board",
         "priority": "normal", "status": "PENDING", "dependencies": [], "acceptance_criteria": ["c"], "created_at": NOW, "updated_at": NOW}
-EVENT = {"event_id": "evt-001", "type": "TaskCreated", "schema_version": 1, "occurred_at": NOW, "source": "system", "payload": {}}
 DECISION = {"decision_id": "dec-001", "decision": "d", "decision_type": "product", "owner": "example-agent", "objective": "o",
             "options": [{"id": "a", "summary": "A"}, {"id": "b", "summary": "B"}], "selected_option": "a", "reasoning_summary": "r",
             "evidence": [], "confidence": 0.7, "impact": "low", "cost": {"estimate_usd": None}, "risk": "low", "reversibility": "easy",
@@ -22,14 +21,14 @@ APPROVAL = {"approval_id": "apr-001", "task_id": "task-001", "requested_by": "ex
 STATE = {"schema_version": 1, "as_of": NOW, "mission": "m"}
 
 
-@pytest.mark.parametrize("kind,obj", [("task", TASK), ("event", EVENT), ("decision", DECISION), ("artifact", ARTIFACT),
+@pytest.mark.parametrize("kind,obj", [("task", TASK), ("decision", DECISION), ("artifact", ARTIFACT),
                                       ("approval", APPROVAL), ("company-state", STATE)])
 def test_valid_instances(kind, obj):
     assert v.validate_instance(kind, obj) == []
 
 
 @pytest.mark.parametrize("kind,obj,field", [
-    ("task", TASK, "status"), ("event", EVENT, "type"), ("decision", DECISION, "confidence"),
+    ("task", TASK, "status"), ("decision", DECISION, "confidence"),
     ("artifact", ARTIFACT, "status"), ("approval", APPROVAL, "level")])
 def test_invalid_instances(kind, obj, field):
     bad = copy.deepcopy(obj)
@@ -55,12 +54,3 @@ def test_lifecycle_matches_schema():
     assert all(lc["transitions"][s] == [] for s in lc["terminal"])
     assert lc["initial"] in states
 
-
-REQUIRED_EVENTS = {"TaskCreated", "TaskAssigned", "TaskStarted", "TaskCompleted", "TaskFailed", "ApprovalRequested", "ApprovalGranted",
-                   "ApprovalRejected", "BudgetExceeded", "ProductApproved", "DevelopmentCompleted", "QAPassed", "SecurityApproved",
-                   "DeploymentSucceeded", "DeploymentFailed", "CustomerFeedbackReceived", "SalesOpportunityCreated", "IncidentDetected", "DecisionMade"}
-
-
-def test_event_types_are_the_contract_list():
-    enum = v.load(v.ROOT / "protocols/events/event.schema.json")["properties"]["type"]["enum"]
-    assert REQUIRED_EVENTS <= set(enum) and len(enum) == len(set(enum))

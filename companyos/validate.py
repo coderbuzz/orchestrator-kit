@@ -27,12 +27,10 @@ KINDS = {
 # protocol instances (used by tests and runtime), keyed by name
 PROTOCOLS = {
     "task": "protocols/tasks/task.schema.json",
-    "event": "protocols/events/event.schema.json",
     "decision": "protocols/decisions/decision.schema.json",
     "artifact": "protocols/artifacts/artifact.schema.json",
     "approval": "protocols/approvals/approval.schema.json",
     "company-state": "company/state.schema.json",
-    "run": "protocols/runs/run.schema.json",
     "agent-result": "protocols/results/agent-result.schema.json",
     "board-report": "protocols/reports/board-report.schema.json",
 }
@@ -65,7 +63,7 @@ def errors_for(validator: Draft202012Validator, data) -> list[str]:
 
 
 def validate_instance(kind: str, data) -> list[str]:
-    """Validate a protocol instance (task, event, ...) by kind name."""
+    """Validate a protocol instance (task, approval, ...) by kind name."""
     return errors_for(schema_validator(PROTOCOLS[kind]), data)
 
 

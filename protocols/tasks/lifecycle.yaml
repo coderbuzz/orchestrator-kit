@@ -1,5 +1,5 @@
-# Deterministic task state machine. Phase-2 orchestrator must enforce exactly these transitions.
-# Test: tests/contracts/test_lifecycle.py keeps this in sync with task.schema.json.
+# Deterministic task state machine, enforced by companyos/tools.py (`_set`).
+# Test: tests/contracts/test_contracts.py keeps this in sync with task.schema.json.
 version: 1.1.0
 initial: PENDING
 terminal: [COMPLETED, FAILED, CANCELLED]
