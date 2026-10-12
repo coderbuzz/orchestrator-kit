@@ -57,7 +57,7 @@ class Route:
     model: str
     cfg: dict
     provider: str | None = None
-    effort: str | None = None  # set for approved-mapping fallbacks; None = the resolved selection's effort
+    effort: str | None = None  # approved-mapping fallbacks: their own effort, "" = none (never inherited); None = the resolved selection's effort
 
 
 def unsupported(hdef: dict, model: str | None, provider: str | None, effort: str | None) -> str | None:
@@ -151,8 +151,18 @@ def build_zcode(hdef, model, req: Request, schema: dict) -> list[str]:
     return [hdef["invocation"]["command"], *args]
 
 
+def build_agy(hdef, model, req: Request, schema: dict) -> list[str]:
+    """No system-prompt/cwd/tool flags (cwd = subprocess cwd). Always --dangerously-skip-permissions (Board approval 2026-10-12, quote in the
+    descriptor notes): without it agy auto-denies run_command/web/out-of-cwd access and Gemini models then end the turn EMPTY even on
+    text-only tasks (profiling 2026-10-12). The flag auto-approves every tool; --sandbox did not restrict anything on this Linux VM."""
+    prompt = (f"{req.system_prompt}\n\n---\n\n{req.prompt}\n\nReturn ONLY one JSON object matching this schema:\n"
+              f"{json.dumps(schema)}\n\n{CONTRACT_GUIDE}")
+    args = [prompt if a == "{prompt}" else a for a in hdef["invocation"]["non_interactive_args"]]
+    return [hdef["invocation"]["command"], *args, "--dangerously-skip-permissions"]
+
+
 RETRYABLE = ("no agent-result JSON", "result violates agent-result contract")  # worth one corrective retry on the same route
-BUILDERS = {"claude-code": build_claude, "zcode": build_zcode}
+BUILDERS = {"claude-code": build_claude, "zcode": build_zcode, "agy": build_agy}
 
 
 def price_for(hdef: dict, provider: str | None, model: str) -> dict | None:
@@ -185,6 +195,28 @@ def parse_zcode_json(stdout: str) -> tuple[str, dict]:
     return stdout, {}
 
 
+def parse_agy_json(stdout: str) -> tuple[str, dict, str]:
+    """agy `--output-format json` -> (response text, usage in zh key names, error). `input_tokens` excludes cache reads (total = in + out)."""
+    i = stdout.find("{")
+    try:
+        d, _ = json.JSONDecoder().raw_decode(stdout, i)
+    except ValueError:
+        return stdout, {}, "non-JSON output from agy"
+    u = d.get("usage") or {}
+    usage = {"inputTokens": (u.get("input_tokens") or 0) + (u.get("cache_read_tokens") or 0), "outputTokens": u.get("output_tokens") or 0,
+             "cacheReadTokens": u.get("cache_read_tokens") or 0, "reasoningTokens": u.get("thinking_tokens") or 0}
+    text = d.get("response") or ""
+    if d.get("status") != "SUCCESS":
+        return text, usage, f"agy {d.get('status')}: {str(d.get('error'))[:300]}"
+    if d.get("denied_actions") and not text.strip():  # headless: a tool needing permission is auto-denied, the turn ends empty
+        return text, usage, "agy denied tool permission: " + ",".join(a.get("action", "?") for a in d["denied_actions"])
+    return text, usage, ""
+
+
+def usage_of(harness_id: str, stdout: str) -> dict:
+    return parse_zcode_json(stdout)[1] if harness_id == "zcode" else parse_agy_json(stdout)[1] if harness_id == "agy" else {}
+
+
 def parse(harness_id: str, stdout: str, price: dict | None = None) -> tuple[dict | None, float | None, str]:
     """-> (agent result, exact cost or None, error)."""
     if harness_id == "claude-code":
@@ -197,7 +229,12 @@ def parse(harness_id: str, stdout: str, price: dict | None = None) -> tuple[dict
             return None, cost, f"claude error: {d.get('subtype')} {str(d.get('result'))[:300]}"
         out = d.get("structured_output") or extract_json(d.get("result") or "")
         return out, cost, "" if out else "no agent-result JSON in claude output"
-    text, usage = parse_zcode_json(stdout) if harness_id == "zcode" else (stdout, {})
+    if harness_id == "agy":
+        text, usage, err = parse_agy_json(stdout)
+        if err:
+            return None, token_cost(price, usage) if usage else None, err
+    else:
+        text, usage = parse_zcode_json(stdout) if harness_id == "zcode" else (stdout, {})
     out = extract_json(text)
     return out, token_cost(price, usage) if usage else None, "" if out else "no agent-result JSON in output"
 
@@ -220,7 +257,7 @@ def invoke(hdef: dict, model: str, req: Request, schema: dict) -> CallResult:
         out.seek(0)
         stdout = out.read()
     output, cost, err = parse(hdef["id"], stdout, price_for(hdef, req.provider, model))
-    usage = parse_zcode_json(stdout)[1] if hdef["id"] == "zcode" else {}
+    usage = usage_of(hdef["id"], stdout)
     if p.returncode != 0 and (not err or not stdout.strip()):
         err = f"exit {p.returncode}: {p.stderr.strip()[-300:] or err}"
     return CallResult(not err, hdef["id"], model, output=output, error=err, cost_usd=cost or 0.0,
@@ -252,7 +289,7 @@ class Router:
             lead.append({"harness": ai["harness"], "model": ai.get("model") or (enabled.get(ai["harness"]) or {}).get("default_model"),
                          "provider": ai.get("provider")})
         lead += [{"harness": f["harness"], "model": f.get("model") or (enabled.get(f["harness"]) or {}).get("default_model"),
-                  "provider": f.get("provider"), "effort": f.get("effort")} for f in fallbacks or [] if f.get("harness")]
+                  "provider": f.get("provider"), "effort": f.get("effort") or ""} for f in fallbacks or [] if f.get("harness")]
         seen = {(c["harness"], c.get("provider"), c["model"], c.get("effort")) for c in lead}
         cands = lead + [c for c in cands if (c["harness"], c.get("provider"), c["model"], None) not in seen
                         and (c["harness"], c["model"]) not in {(x["harness"], x["model"]) for x in lead}]
@@ -287,7 +324,7 @@ class Router:
         attempts = []
         for rt in routes[:limit]:
             hdef, model, hcfg = rt.hdef, rt.model, rt.cfg
-            effort = rt.effort or (ai or {}).get("effort")
+            effort = (rt.effort if rt.effort is not None else (ai or {}).get("effort")) or None
             why = unsupported(hdef, model, rt.provider, effort)
             if why:
                 attempts.append(CallResult(False, hdef["id"], model, error=f"unsupported selection: {why}", provider=rt.provider, effort=effort))
