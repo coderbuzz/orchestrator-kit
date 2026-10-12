@@ -92,3 +92,21 @@ class FakeHarness:
 
     def calls_for(self, **kw):
         return [c for c in self.calls if all(c.get(k) == v for k, v in kw.items())]
+
+
+@pytest.fixture
+def fake_dsh(tmp_path):
+    """A scripted `dsh` executable: answers --version, records its other argv in argv.json, prints `stdout`, exits with `code`."""
+    from companyos.registry import Registry
+
+    def make(stdout="", code=0, version="0.1.6"):
+        out, argv, script = tmp_path / "out.txt", tmp_path / "argv.json", tmp_path / "dsh"
+        out.write_text(stdout)
+        script.write_text("#!/usr/bin/env python3\nimport json, sys\n"
+                          f"if '--version' in sys.argv: print({version!r}); sys.exit(0)\n"
+                          f"open({str(argv)!r}, 'w').write(json.dumps(sys.argv[1:]))\n"
+                          f"sys.stdout.write(open({str(out)!r}).read()); sys.exit({code})\n")
+        script.chmod(0o755)
+        h = Registry().harnesses["dsh"]
+        return {**h, "invocation": {**h["invocation"], "command": str(script), "prefix": []}}, lambda: json.loads(argv.read_text())
+    return make

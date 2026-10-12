@@ -26,6 +26,7 @@
     },
     "candidates": {"type": "array", "minItems": 1, "description": "Ordered preference. The router picks the first routable candidate (harness enabled in config/models).",
       "items": {"type": "object", "additionalProperties": false, "required": ["harness", "model"],
-        "properties": {"harness": {"type": "string"}, "model": {"type": "string"}, "provider": {"type": "string"}}}}
+        "properties": {"harness": {"type": "string"}, "model": {"type": "string"}, "provider": {"type": "string"},
+          "effort": {"enum": ["disabled", "low", "medium", "high", "xhigh", "max"], "description": "Effort of this candidate; overrides the selection effort (harnesses that put effort in the model id leave it out)."}}}}
   }
 }

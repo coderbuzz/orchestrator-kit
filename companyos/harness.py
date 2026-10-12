@@ -8,7 +8,9 @@ fallback:  call_with_fallback() tries candidates in order (primary model -> fall
 Invocation templates come from model-routing/providers/*.harness.yaml; the per-harness builders below only fill in
 what a template cannot express (tool lists, modes). Adding a harness = descriptor + one builder.
 """
+import functools
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -139,30 +141,46 @@ Valid example:
 {"status": "completed", "summary": "Researched X; two sources agree.", "artifacts": [{"type": "research_report", "title": "X market", "content": "# X\\n...", "evidence": {"sources": ["https://example.com/a", "https://example.com/b"], "findings": ["finding one"], "confidence": 0.7}}]}"""
 
 
+def _mode(caps: set[str]) -> str:
+    return "yolo" if caps & {"execute_command", "run_tests"} else "edit" if "write_repository" in caps else "plan"
+
+
+def _contract_prompt(req: Request, schema: dict) -> str:
+    return (f"{req.system_prompt}\n\n---\n\n{req.prompt}\n\nReturn ONLY one JSON object matching this schema:\n"
+            f"{json.dumps(schema)}\n\n{CONTRACT_GUIDE}")
+
+
 def build_zcode(hdef, model, req: Request, schema: dict) -> list[str]:
     caps = set(req.capabilities)
-    mode = "yolo" if caps & {"execute_command", "run_tests"} else "edit" if "write_repository" in caps else "plan"
-    prompt = (f"{req.system_prompt}\n\n---\n\n{req.prompt}\n\nReturn ONLY one JSON object matching this schema:\n"
-              f"{json.dumps(schema)}\n\n{CONTRACT_GUIDE}")
-    args = _fill(hdef["invocation"]["non_interactive_args"], {"cwd": req.cwd, "mode": mode})
+    prompt = _contract_prompt(req, schema)
+    args = _fill(hdef["invocation"]["non_interactive_args"], {"cwd": req.cwd, "mode": _mode(caps)})
     args = [prompt if a == "{prompt}" else a for a in args]
     if not caps & {"execute_command", "run_tests"}:
         args += ["--disallowed-tools", "Bash"]
     return [hdef["invocation"]["command"], *args]
 
 
+def build_dsh(hdef, model, req: Request, schema: dict) -> list[str]:
+    caps, inv = set(req.capabilities), hdef["invocation"]
+    prompt = _contract_prompt(req, schema)
+    args = _fill(inv["non_interactive_args"], {"cwd": req.cwd, "mode": _mode(caps), "timeout": max(1, req.timeout_seconds - 5)})
+    args = [prompt if a == "{prompt}" else a for a in args]
+    if not caps & {"execute_command", "run_tests"}:
+        args += ["--disallowed-tools", "bash"]
+    return [*inv.get("prefix", []), inv["command"], *args]
+
+
 def build_agy(hdef, model, req: Request, schema: dict) -> list[str]:
     """No system-prompt/cwd/tool flags (cwd = subprocess cwd). Always --dangerously-skip-permissions (Board approval 2026-10-12, quote in the
     descriptor notes): without it agy auto-denies run_command/web/out-of-cwd access and Gemini models then end the turn EMPTY even on
     text-only tasks (profiling 2026-10-12). The flag auto-approves every tool; --sandbox did not restrict anything on this Linux VM."""
-    prompt = (f"{req.system_prompt}\n\n---\n\n{req.prompt}\n\nReturn ONLY one JSON object matching this schema:\n"
-              f"{json.dumps(schema)}\n\n{CONTRACT_GUIDE}")
+    prompt = _contract_prompt(req, schema)
     args = [prompt if a == "{prompt}" else a for a in hdef["invocation"]["non_interactive_args"]]
     return [hdef["invocation"]["command"], *args, "--dangerously-skip-permissions"]
 
 
 RETRYABLE = ("no agent-result JSON", "result violates agent-result contract")  # worth one corrective retry on the same route
-BUILDERS = {"claude-code": build_claude, "zcode": build_zcode, "agy": build_agy}
+BUILDERS = {"claude-code": build_claude, "zcode": build_zcode, "agy": build_agy, "dsh": build_dsh}
 
 
 def price_for(hdef: dict, provider: str | None, model: str) -> dict | None:
@@ -213,8 +231,33 @@ def parse_agy_json(stdout: str) -> tuple[str, dict, str]:
     return text, usage, ""
 
 
+def parse_dsh_json(stdout: str) -> tuple[str, dict, str]:
+    """dsh `--json` -> (reply text, usage in zh key names, error). prompt_tokens already includes cache hits.
+    Truncated or non-JSON stdout is an error (not retried on the same route: the transport, not the answer, is broken)."""
+    i = stdout.find("{")
+    try:
+        d, _ = json.JSONDecoder().raw_decode(stdout, i) if i >= 0 else (None, 0)
+    except ValueError:
+        d = None
+    if not isinstance(d, dict) or "status" not in d:
+        return stdout, {}, "non-JSON output from dsh (truncated or not a result object)"
+    u = d.get("usage") or {}
+    usage = {"inputTokens": u.get("prompt_tokens") or 0, "outputTokens": u.get("completion_tokens") or 0,
+             "cacheReadTokens": u.get("prompt_cache_hit_tokens") or 0, "reasoningTokens": u.get("reasoning_tokens") or 0}
+    text = d.get("reply") or ""
+    if d["status"] != "completed":
+        return text, usage, f"dsh {d['status']}: {str(d.get('failReason'))[:300]}"
+    return text, usage, ""
+
+
+JSON_PARSERS = {"agy": parse_agy_json, "dsh": parse_dsh_json}  # harnesses whose --json output also carries an error status
+
+
 def usage_of(harness_id: str, stdout: str) -> dict:
-    return parse_zcode_json(stdout)[1] if harness_id == "zcode" else parse_agy_json(stdout)[1] if harness_id == "agy" else {}
+    if harness_id == "zcode":
+        return parse_zcode_json(stdout)[1]
+    p = JSON_PARSERS.get(harness_id)
+    return p(stdout)[1] if p else {}
 
 
 def parse(harness_id: str, stdout: str, price: dict | None = None) -> tuple[dict | None, float | None, str]:
@@ -229,8 +272,8 @@ def parse(harness_id: str, stdout: str, price: dict | None = None) -> tuple[dict
             return None, cost, f"claude error: {d.get('subtype')} {str(d.get('result'))[:300]}"
         out = d.get("structured_output") or extract_json(d.get("result") or "")
         return out, cost, "" if out else "no agent-result JSON in claude output"
-    if harness_id == "agy":
-        text, usage, err = parse_agy_json(stdout)
+    if harness_id in JSON_PARSERS:
+        text, usage, err = JSON_PARSERS[harness_id](stdout)
         if err:
             return None, token_cost(price, usage) if usage else None, err
     else:
@@ -239,11 +282,24 @@ def parse(harness_id: str, stdout: str, price: dict | None = None) -> tuple[dict
     return out, token_cost(price, usage) if usage else None, "" if out else "no agent-result JSON in output"
 
 
+@functools.cache
+def installed_version(command: str) -> str:
+    """`<command> --version` -> x.y.z ('' when it cannot be read). Cached per process: checked at first use, not on every call."""
+    try:
+        m = re.search(r"\d+\.\d+\.\d+", subprocess.run([command, "--version"], capture_output=True, text=True, timeout=30, stdin=subprocess.DEVNULL).stdout)
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return m.group(0) if m else ""
+
+
 def invoke(hdef: dict, model: str, req: Request, schema: dict) -> CallResult:
     """Real subprocess call. Tests inject a different callable with the same signature."""
     builder = BUILDERS.get(hdef["id"])
     if builder is None:
         return CallResult(False, hdef["id"], model, error=f"no adapter builder for harness {hdef['id']}")
+    pin = hdef.get("pinned_version")
+    if pin and (v := installed_version(hdef["invocation"]["command"])) != pin:
+        return CallResult(False, hdef["id"], model, error=f"{hdef['id']} version {v or 'unknown'} does not match the pinned {pin}")
     argv = builder(hdef, model, req, schema) + selection_args(hdef, model, req)
     t0 = time.time()
     with tempfile.TemporaryFile("w+") as out:

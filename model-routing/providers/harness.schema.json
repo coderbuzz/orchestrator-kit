@@ -39,6 +39,11 @@
       ],
       "description": "documented = CLI flags verified on a real install, adapter not yet written."
     },
+    "pinned_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Exact installed version the adapter was verified against. `<command> --version` is checked before a call; a mismatch is a failed attempt (next route is tried), so an upgrade never reaches production unverified."
+    },
     "verified_with": {
       "type": "string",
       "description": "Tool version the invocation was verified against."
@@ -54,12 +59,17 @@
         "command": {
           "type": "string"
         },
+        "prefix": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Words placed before the command (e.g. a secret-injecting wrapper `with-secrets <name> --`); the harness itself is still `command`."
+        },
         "non_interactive_args": {
           "type": "array",
           "items": {
             "type": "string"
           },
-          "description": "Argument template; {prompt}, {model}, {cwd} are filled by the adapter."
+          "description": "Argument template; {prompt}, {model}, {cwd}, {mode}, {timeout} are filled by the adapter."
         },
         "model_args": {
           "type": "array",

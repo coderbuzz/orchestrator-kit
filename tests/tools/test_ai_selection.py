@@ -47,9 +47,9 @@ def test_zh_built_in_models_and_opus_only_decisions():
         ["--model", "account:zai-individual-coding-plan/GLM-5.3", "--effort", "high"]
     assert harness.unsupported(z, "GLM-5.3", glm["provider"], "high") is None
     assert validate._candidate_checks(REG) == []
-    # every policy except strategic ends in a zh built-in model; strategic is Opus only (a decision is blocked, not downgraded)
+    # policies list zh GLM built-in models (DeepSeek only via dsh, last); strategic is Opus only (a decision is blocked, not downgraded)
     models = {p: [(c["harness"], c["model"]) for c in m["candidates"]] for p, m in REG.model_policies.items()}
-    assert models["strategic"] == [("claude-code", "opus"), ("zcode", "claude-opus-5")]
+    assert models["strategic"] == [("claude-code", "opus")]   # Claude plan only; zh has no Anthropic route (Board 2026-10-12)
     assert ("zcode", "GLM-5.3-Flash") in models["cheap"] and ("zcode", "GLM-5.3") in models["coding"]
     assert not any(m == "configured" for c in models.values() for _, m in c)
 

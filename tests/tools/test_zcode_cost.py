@@ -5,6 +5,7 @@ from companyos import harness
 from companyos.registry import Registry
 
 REG = Registry()
+DS = {"in": 0.30, "cache_hit": 0.006, "out": 1.20}   # the DeepSeek tariff; the zcode parser is generic, the price is passed in
 Z = REG.harnesses["zcode"]
 RESULT = {"status": "completed", "summary": "s"}
 
@@ -15,13 +16,13 @@ def zh_json(**usage):
 
 def test_json_flag_in_invocation_and_response_unwrapped():
     assert "--json" in Z["invocation"]["non_interactive_args"]
-    out, cost, err = harness.parse("zcode", zh_json(inputTokens=1000, outputTokens=100), harness.price_for(Z, "deepseek", "deepseek-flash"))
+    out, cost, err = harness.parse("zcode", zh_json(inputTokens=1000, outputTokens=100), DS)
     assert out == RESULT and err == ""
     assert cost == round(1000 * 0.30 / 1e6 + 100 * 1.20 / 1e6, 6)
 
 
 def test_cache_read_tokens_priced_at_the_hit_rate():
-    p = harness.price_for(Z, "deepseek", "deepseek-flash")
+    p = DS
     assert harness.token_cost(p, {"inputTokens": 11000, "cacheReadTokens": 10000, "outputTokens": 0}) == round(1000 * 0.30 / 1e6 + 10000 * 0.006 / 1e6, 6)
 
 
