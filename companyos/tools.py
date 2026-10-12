@@ -47,7 +47,8 @@ class Company:
         """The company as configured for one workspace project: its own state, budget, agents and default AI."""
         project_dir = Path(project_dir)
         cfg = yaml.safe_load((project_dir / PROJECT_FILE).read_text()) or {}
-        if errs := errors_for(validator_for(load(ROOT / "company/project.schema.json")), cfg):
+        root = kw.get("root")
+        if errs := errors_for(validator_for(load(Path(root or ROOT) / "company/project.schema.json"), root), cfg):
             raise Refused(f"{project_dir / PROJECT_FILE}: {errs[:3]}")
         c = cls(state_dir=project_dir / ".company" / "state", **kw)
         c.project_dir = project_dir
@@ -68,7 +69,7 @@ class Company:
     def __init__(self, root: Path | None = None, state_dir: Path | None = None, invoke=None, adapters=None):
         self.project_dir: Path | None = None
         self.reg = Registry(root)
-        self.store = Store(state_dir or self.reg.state_dir)
+        self.store = Store(state_dir or self.reg.state_dir, self.reg.root)
         self.workspaces_dir = (Path(state_dir) / "workspaces") if state_dir else self.reg.workspaces_dir
         self.adapters = {**ADAPTERS, **(adapters or {})}
         self.policy = Policy(self.reg, set(adapters or {}))
@@ -139,7 +140,7 @@ class Company:
         return t
 
     def _check_ai(self, ai: dict):
-        if errs := errors_for(validator_for(load(ROOT / AI_SCHEMA)), ai):
+        if errs := errors_for(validator_for(load(self.reg.root / AI_SCHEMA), self.reg.root), ai):
             raise Refused(f"invalid ai selection: {errs[:2]}")
         if ai.get("harness"):
             hdef = self.reg.harnesses.get(ai["harness"])
@@ -177,7 +178,7 @@ class Company:
         """Process an agent-result for a RUNNING task: policy filter, approval gate, actions (exactly once), evidence
         verification, then COMPLETED, or back to PLANNED with feedback (bounded by attempts), or FAILED / BLOCKED.
         Returns {"status", "notes"}."""
-        if errs := validate_instance("agent-result", result):
+        if errs := validate_instance("agent-result", result, self.reg.root):
             raise Refused(f"result violates the agent-result contract: {errs[:3]}")
         with self.store.tx():
             t = self.task(task_id)

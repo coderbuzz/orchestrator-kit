@@ -4,6 +4,7 @@ Usage: python -m companyos.validate     (exit 1 on any error)
 Kind is inferred from the file suffix, so adding a definition needs no registry edit.
 """
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -11,7 +12,9 @@ import yaml
 from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
 
-ROOT = Path(__file__).resolve().parent.parent
+# Default pack root: the checkout this package lives in; COMPANYOS_ROOT points the tools at another one. Every function below
+# takes an explicit `root` and only falls back to this.
+ROOT = Path(os.environ.get("COMPANYOS_ROOT") or Path(__file__).resolve().parent.parent)
 SKIP = {".git", ".venv", "tests", "state", "__pycache__", "archive", "plugin", ".claude-plugin"}
 
 # suffix -> schema path (relative to ROOT)
@@ -45,15 +48,15 @@ def load(path: Path):
 AI_SCHEMA = "protocols/ai/ai.schema.json"  # shared; other schemas reference it as "../ai/1"
 
 
-def schema_validator(rel: str, fragment: str = "") -> Draft202012Validator:
-    schema = load(ROOT / rel)
+def schema_validator(rel: str, fragment: str = "", root: Path | None = None) -> Draft202012Validator:
+    schema = load((root or ROOT) / rel)
     if fragment:  # config.schema.json#/$defs/<name>
         schema = {"$id": schema["$id"], "$ref": f"#/$defs/{fragment}", "$defs": schema["$defs"]}
-    return validator_for(schema)
+    return validator_for(schema, root)
 
 
-def validator_for(schema: dict) -> Draft202012Validator:
-    ai = load(ROOT / AI_SCHEMA)
+def validator_for(schema: dict, root: Path | None = None) -> Draft202012Validator:
+    ai = load((root or ROOT) / AI_SCHEMA)
     registry = Registry().with_resource(ai["$id"], Resource.from_contents(ai))
     return Draft202012Validator(schema, registry=registry, format_checker=Draft202012Validator.FORMAT_CHECKER)
 
@@ -62,9 +65,9 @@ def errors_for(validator: Draft202012Validator, data) -> list[str]:
     return [f"{'/'.join(map(str, e.path)) or '<root>'}: {e.message}" for e in validator.iter_errors(data)]
 
 
-def validate_instance(kind: str, data) -> list[str]:
+def validate_instance(kind: str, data, root: Path | None = None) -> list[str]:
     """Validate a protocol instance (task, approval, ...) by kind name."""
-    return errors_for(schema_validator(PROTOCOLS[kind]), data)
+    return errors_for(schema_validator(PROTOCOLS[kind], root=root), data)
 
 
 def _files(root: Path):
@@ -88,16 +91,17 @@ def discover(root: Path | None = None) -> dict[str, list[tuple[Path, object]]]:
     return found
 
 
-def check() -> list[str]:
+def check(root: Path | None = None) -> list[str]:
+    root = Path(root or ROOT)
     errs: list[str] = []
-    found = discover()
+    found = discover(root)
     for kind, items in found.items():
         if kind.startswith("config:"):
-            v = schema_validator("config/config.schema.json", CONFIG_DIRS[kind.split(":")[1]])
+            v = schema_validator("config/config.schema.json", CONFIG_DIRS[kind.split(":")[1]], root)
         else:
-            v = schema_validator(KINDS[kind])
+            v = schema_validator(KINDS[kind], root=root)
         for path, data in items:
-            errs += [f"{path.relative_to(ROOT)}: {e}" for e in errors_for(v, data)]
+            errs += [f"{path.relative_to(root)}: {e}" for e in errors_for(v, data)]
     if errs:
         return errs  # cross-refs are meaningless on malformed files
 
@@ -113,13 +117,13 @@ def check() -> list[str]:
         for path, d in found.get(kind, []):
             key = (d["id"], d["version"]) if kind in (".skill.yaml", ".policy.yaml") else d["id"]  # skills/policies may keep old versions
             if key in seen:
-                errs.append(f"{path.relative_to(ROOT)}: duplicate {kind} id '{d['id']}'")
+                errs.append(f"{path.relative_to(root)}: duplicate {kind} id '{d['id']}'")
             seen.add(key)
     cap_ids = [c["id"] for _, d in found.get(".capabilities.yaml", []) for c in d["capabilities"]]
     errs += [f"duplicate capability id '{c}'" for c in set(cap_ids) if cap_ids.count(c) > 1]
 
     def need(path, what, vals, known):
-        errs.extend(f"{path.relative_to(ROOT)}: unknown {what} '{v}'" for v in vals if v not in known)
+        errs.extend(f"{path.relative_to(root)}: unknown {what} '{v}'" for v in vals if v not in known)
 
     for path, a in found.get(".agent.yaml", []):
         need(path, "skill", [s["id"] for s in a["skills"]], skills)
@@ -129,13 +133,13 @@ def check() -> list[str]:
         need(path, "delegate", a["authority"]["delegates_to"], agents)
         if a["authority"]["reports_to"] != "board":
             need(path, "reports_to", [a["authority"]["reports_to"]], agents)
-        if "prompt_file" in a and not (ROOT / a["prompt_file"]).is_file():
-            errs.append(f"{path.relative_to(ROOT)}: prompt_file '{a['prompt_file']}' not found")
+        if "prompt_file" in a and not (root / a["prompt_file"]).is_file():
+            errs.append(f"{path.relative_to(root)}: prompt_file '{a['prompt_file']}' not found")
     for path, s in found.get(".skill.yaml", []):
         need(path, "capability", s["required_capabilities"], caps)
     for path, p in found.get(".policy.yaml", []):
         if path.parent.name != p["domain"]:
-            errs.append(f"{path.relative_to(ROOT)}: domain '{p['domain']}' != directory '{path.parent.name}'")
+            errs.append(f"{path.relative_to(root)}: domain '{p['domain']}' != directory '{path.parent.name}'")
     for path, m in found.get(".model-policy.yaml", []):
         need(path, "harness", [c["harness"] for c in m["candidates"]], harnesses)
     for path, c in found.get("config:agents", []):
@@ -145,21 +149,21 @@ def check() -> list[str]:
     for path, c in found.get("config:models", []):
         need(path, "harness", [h["id"] for h in c["harnesses"]], harnesses)
         need(path, "model policy", [c["default_model_policy"]], mpols)
-    errs += _semantic_checks(found)
+    errs += _semantic_checks(found, root)
     return errs
 
 
-def _semantic_checks(found) -> list[str]:
+def _semantic_checks(found, root: Path) -> list[str]:
     """Checks that need resolved references: versions, capability coverage, memory scopes, AI selections."""
     from .registry import Registry, SECTION_RE
     errs: list[str] = []
     try:
-        reg = Registry(ROOT)
+        reg = Registry(root)
     except Exception as e:  # noqa: BLE001
         return [f"registry: {e}"]
-    rel = lambda p: p.relative_to(ROOT)  # noqa: E731
-    sections = set(load(ROOT / "company/state.schema.json")["properties"])
-    depts = set(load(ROOT / "agents/agent.schema.json")["properties"]["department"]["enum"])
+    rel = lambda p: p.relative_to(root)  # noqa: E731
+    sections = set(load(root / "company/state.schema.json")["properties"])
+    depts = set(load(root / "agents/agent.schema.json")["properties"]["department"]["enum"])
     art_types = set(reg.evidence_rules["types"])
     for path, a in found.get(".agent.yaml", []):
         for ref in a["skills"]:

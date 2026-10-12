@@ -327,7 +327,7 @@ class Router:
         self.check_installed = check_installed
         self.health = health if health is not None else {}  # harness -> {"failures": n, "since": ts}
         self.cfg = reg.config["models"]
-        self._validator = validator_for(reg.result_schema)
+        self._validator = validator_for(reg.result_schema, reg.root)
 
     def _breaker_open(self, harness_id: str) -> bool:
         fb = self.cfg.get("fallback") or {}

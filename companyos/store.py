@@ -44,7 +44,8 @@ class InvalidRecord(ValueError):
 
 
 class Store:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, root: Path | None = None):
+        self.root = root  # definitions root whose protocol schemas validate records (default: validate.ROOT)
         self.path = Path(path)
         self.path.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
@@ -77,7 +78,7 @@ class Store:
     def put(self, coll: str, obj: dict, key: str | None = None) -> dict:
         kind = SCHEMAS.get(coll)
         if kind:
-            errs = v.validate_instance(kind, obj)
+            errs = v.validate_instance(kind, obj, self.root)
             if errs:
                 raise InvalidRecord(f"{coll}: {errs[:3]}")
         rid = key or obj.get(f"{coll[:-1]}_id") or obj["id"]
@@ -127,7 +128,7 @@ class Store:
 
     def save_company(self, state: dict):
         state["as_of"] = now()
-        errs = v.validate_instance("company-state", state)
+        errs = v.validate_instance("company-state", state, self.root)
         if errs:
             raise InvalidRecord(f"company state: {errs[:3]}")
         with self.tx():
