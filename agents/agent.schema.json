@@ -81,14 +81,8 @@
       ],
       "properties": {
         "reports_to": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/id"
-            },
-            {
-              "const": "board"
-            }
-          ]
+          "$ref": "#/$defs/id",
+          "description": "An agent id, or the pack's human id (pack.yaml human.id, e.g. board); validate checks which."
         },
         "delegates_to": {
           "type": "array",

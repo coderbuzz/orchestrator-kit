@@ -54,3 +54,8 @@ def test_lifecycle_matches_schema():
     assert all(lc["transitions"][s] == [] for s in lc["terminal"])
     assert lc["initial"] in states
 
+
+
+def test_artifact_type_is_open_but_shaped():
+    assert v.validate_instance("artifact", {**ARTIFACT, "type": "claim_check"}) == []
+    assert v.validate_instance("artifact", {**ARTIFACT, "type": "Not A Type"})

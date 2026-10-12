@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "company-os/pack/1",
+  "title": "Pack manifest (pack.yaml at the root of a definitions repo)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "server", "project_file", "state_dir", "human", "preamble", "def_keys", "plugin", "mcp", "hook"],
+  "properties": {
+    "name": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+    "server": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+    "project_file": {"type": "string", "minLength": 1},
+    "state_dir": {"type": "string", "pattern": "^\\.[A-Za-z0-9._-]+$", "description": "Directory name inside a project; also what the hook protects."},
+    "human": {"type": "object", "additionalProperties": false, "required": ["id", "tool_prefix"],
+      "properties": {"id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"}, "tool_prefix": {"type": "string", "pattern": "^[a-z][a-z0-9]*_$"}}},
+    "preamble": {"type": "string"},
+    "def_keys": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "plugin": {"type": "object", "additionalProperties": false, "required": ["version", "author", "description"],
+      "properties": {"version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"}, "author": {"type": "string"}, "description": {"type": "string"}}},
+    "mcp": {"type": "object", "additionalProperties": false, "required": ["command", "instructions"],
+      "properties": {"command": {"type": "string"}, "instructions": {"type": "string"}}},
+    "hook": {"type": "object", "additionalProperties": false, "required": ["command", "description"],
+      "properties": {"command": {"type": "string"}, "description": {"type": "string"}}}
+  }
+}

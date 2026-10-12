@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 
 from . import validate as v
+from .pack import Pack
 
 ORCHESTRATOR_ONLY_SECTIONS = {"products", "decisions", "policies", "as_of", "schema_version"}
 
@@ -49,6 +50,7 @@ def merge_ai(*layers: dict | None) -> dict:
 class Registry:
     def __init__(self, root: Path | None = None):
         self.root = Path(root or v.ROOT)
+        self.pack = Pack.load(self.root)
         found = v.discover(self.root)
         defs = lambda kind: [d for _, d in found.get(kind, [])]  # noqa: E731
         self.agents = {d["id"]: d for d in defs(".agent.yaml")}
@@ -67,7 +69,7 @@ class Registry:
         self.evidence_rules = v.load(self.root / "protocols/artifacts/evidence-requirements.yaml")
         self.result_schema = v.load(self.root / "protocols/results/agent-result.schema.json")
         self.state_schema = v.load(self.root / "company/state.schema.json")
-        self.preamble = (self.root / "agents/shared/company-preamble.md").read_text()
+        self.preamble = (self.root / self.pack.preamble).read_text()
 
     @staticmethod
     def _by_version(items):
@@ -159,9 +161,9 @@ class Registry:
         return self._abs(self.config["company"].get("workspaces_path") or "./state/workspaces")
 
     def chain(self, agent_id: str) -> list[str]:
-        """reports_to chain upward, excluding the agent itself, ending with 'board'."""
+        """reports_to chain upward, excluding the agent itself, ending with the human (pack.human_id)."""
         out, cur = [], agent_id
-        while cur != "board" and len(out) < 20:
+        while cur != self.pack.human_id and len(out) < 20:
             cur = self.agents[cur]["authority"]["reports_to"]
             out.append(cur)
         return out

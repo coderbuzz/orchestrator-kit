@@ -12,6 +12,8 @@ import yaml
 from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
 
+from .pack import Pack
+
 # Default pack root: the checkout this package lives in; COMPANYOS_ROOT points the tools at another one. Every function below
 # takes an explicit `root` and only falls back to this.
 ROOT = Path(os.environ.get("COMPANYOS_ROOT") or Path(__file__).resolve().parent.parent)
@@ -125,13 +127,14 @@ def check(root: Path | None = None) -> list[str]:
     def need(path, what, vals, known):
         errs.extend(f"{path.relative_to(root)}: unknown {what} '{v}'" for v in vals if v not in known)
 
+    human = Pack.load(root).human_id
     for path, a in found.get(".agent.yaml", []):
         need(path, "skill", [s["id"] for s in a["skills"]], skills)
         need(path, "tool/capability", a["tools"], caps)
         need(path, "policy", [p["id"] for p in a["policies"]], policies)
         need(path, "model_policy", [a["model_policy"]], mpols)
         need(path, "delegate", a["authority"]["delegates_to"], agents)
-        if a["authority"]["reports_to"] != "board":
+        if a["authority"]["reports_to"] != human:
             need(path, "reports_to", [a["authority"]["reports_to"]], agents)
         if "prompt_file" in a and not (root / a["prompt_file"]).is_file():
             errs.append(f"{path.relative_to(root)}: prompt_file '{a['prompt_file']}' not found")

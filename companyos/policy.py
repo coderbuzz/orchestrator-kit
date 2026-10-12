@@ -84,13 +84,14 @@ class Policy:
         return level > self.reg.agents[agent_id]["authority"]["max_approval_level"]
 
     def approver_for(self, agent_id: str, level: int) -> str:
-        """First agent up the reports_to chain whose authority covers `level`; else the Board."""
+        """First agent up the reports_to chain whose authority covers `level`; else the human (Board)."""
+        human = self.reg.pack.human_id
         for a in self.reg.chain(agent_id):
-            if a == "board" or level >= 4:
-                return "board"
+            if a == human or level >= 4:
+                return human
             if self.reg.agents[a]["authority"]["max_approval_level"] >= level:
                 return a
-        return "board"
+        return human
 
     # delegation and state ownership
     def can_delegate(self, from_agent: str, to_agent: str) -> bool:

@@ -15,6 +15,7 @@ import yaml
 
 from . import harness, verify
 from .adapters import ADAPTERS
+from .pack import Pack
 from .policy import Policy
 from .registry import Registry
 from .store import InvalidRecord, Store, new_id, now
@@ -33,24 +34,21 @@ class Refused(Exception):
     """A guardrail said no. The message is the reason."""
 
 
-PROJECT_FILE = "company.yaml"  # <workspace>/<project>/company.yaml; state in <workspace>/<project>/.company/
-
-
-def projects(workspace: Path) -> dict[str, Path]:
-    """Workspace projects the company runs: folders holding a company.yaml."""
-    return {p.parent.name: p.parent for p in sorted(Path(workspace).glob(f"*/{PROJECT_FILE}"))}
+def projects(workspace: Path, project_file: str) -> dict[str, Path]:
+    """Workspace projects the company runs: folders holding the pack's project file (company.yaml)."""
+    return {p.parent.name: p.parent for p in sorted(Path(workspace).glob(f"*/{project_file}"))}
 
 
 class Company:
     @classmethod
     def for_project(cls, project_dir: Path, **kw) -> "Company":
         """The company as configured for one workspace project: its own state, budget, agents and default AI."""
-        project_dir = Path(project_dir)
-        cfg = yaml.safe_load((project_dir / PROJECT_FILE).read_text()) or {}
-        root = kw.get("root")
-        if errs := errors_for(validator_for(load(Path(root or ROOT) / "company/project.schema.json"), root), cfg):
-            raise Refused(f"{project_dir / PROJECT_FILE}: {errs[:3]}")
-        c = cls(state_dir=project_dir / ".company" / "state", **kw)
+        project_dir, root = Path(project_dir), Path(kw.get("root") or ROOT)
+        pack = Pack.load(root)
+        cfg = yaml.safe_load((project_dir / pack.project_file).read_text()) or {}
+        if errs := errors_for(validator_for(load(root / "company/project.schema.json"), root), cfg):
+            raise Refused(f"{project_dir / pack.project_file}: {errs[:3]}")
+        c = cls(state_dir=project_dir / pack.state_dir / "state", **kw)
         c.project_dir = project_dir
         conf = c.reg.config
         spending = {**(conf["policies"].get("parameters") or {}).get("spending", {}),
@@ -60,7 +58,7 @@ class Company:
         if "agents" in cfg:
             unknown = set(cfg["agents"]) - set(c.reg.agents)
             if unknown:
-                raise Refused(f"{project_dir / PROJECT_FILE}: unknown agents {sorted(unknown)}")
+                raise Refused(f"{project_dir / pack.project_file}: unknown agents {sorted(unknown)}")
             conf["agents"] = {**conf["agents"], "enabled": [a for a in conf["agents"].get("enabled", []) if a in cfg["agents"]]}
         if "default_ai" in cfg:
             conf["models"] = {**conf["models"], "default_ai": cfg["default_ai"]}
@@ -387,7 +385,7 @@ class Company:
         self.store.put("approvals", a)
         t["approval_id"] = a["approval_id"]
         self._set(t, "WAITING_APPROVAL", f"level {level} approval from {approver}")
-        if approver == "board":
+        if approver == self.reg.pack.human_id:
             self.board_message(t["assigned_agent"], f"Approval needed (level {level}) [{a['approval_id']}]: {action[:500]} — {justification[:600]}",
                                t["task_id"], "approval")
         return a
@@ -399,12 +397,13 @@ class Company:
             a = self.store.get("approvals", approval_id)
             if a is None or a["status"] != "pending":
                 raise Refused(f"approval {approval_id} is not pending")
-            if by != "board":
+            human = self.reg.pack.human_id
+            if by != human:
                 if by not in self.reg.agents:
                     raise Refused(f"unknown approver '{by}'")
                 if by == a["requested_by"]:
                     raise Refused("approval-levels/no-self-escalation: a requester cannot approve its own request")
-                if a["approver"] == "board" or self.reg.agents[by]["authority"]["max_approval_level"] < a["level"]:
+                if a["approver"] == human or self.reg.agents[by]["authority"]["max_approval_level"] < a["level"]:
                     raise Refused(f"{by} cannot approve level {a['level']} (approver: {a['approver']})")
             a.update(status="granted" if granted else "rejected", resolved_by=by, resolved_at=now(), resolution_note=note[:1000])
             self.store.put("approvals", a)
@@ -439,7 +438,7 @@ class Company:
                 raise Refused(f"no product {product_id}")
             if target not in self.reg.product_lifecycle["transitions"][prod["stage"]]:
                 raise Refused(f"product {product_id}: {prod['stage']} -> {target} is not an allowed transition")
-            if by != "board" and self.policy.effect_level({"product_transition": target}, prod["stage"]) >= 4:
+            if by != self.reg.pack.human_id and self.policy.effect_level({"product_transition": target}, prod["stage"]) >= 4:
                 raise Refused(f"decision-rights/board-reserved: only the Board may move a live product to {target}")
             prod.setdefault("stage_history", []).append({"from": prod["stage"], "to": target, "at": now(), "why": why[:300]})
             prod["stage"] = target
