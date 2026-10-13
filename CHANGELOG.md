@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.0 (2026-10-13)
+Additive:
+- `orchestrator_kit.usage` + `orchestrator-kit usage-hook <pack root>`: a SubagentStop hook reads the native subagent's
+  transcript (model, input / cache write / cache read / output tokens, each API message once) and records it on the task named
+  in its prompt, once per subagent id; never charged, equivalent priced from the claude-code descriptor. A subagent of another
+  plugin or without a task is ignored; the hook never fails the session.
+- `pack.yaml` `hook.usage_command` (optional) adds the SubagentStop hook to the generated plugin; `new-company` sets it.
+- Pricing entries take `cache_write` (default: `in`); `token_cost` prices `cacheWriteTokens`.
+- `task_submit.usage` stays for sessions without that hook; the default orchestrator skill no longer asks for it (no double count).
+
 ## 0.5.0 (2026-10-13)
 Additive:
 - `task_submit` takes an optional `usage` ({model, total_tokens, tool_uses, duration_ms}, as the Agent tool reports it): the

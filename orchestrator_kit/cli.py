@@ -12,6 +12,9 @@ def main(argv: list[str] | None = None) -> int:
     if argv[:1] == ["hook"]:  # fast path: no yaml/jsonschema import
         from .hook import main as hook_main
         return hook_main(argv[1:])
+    if argv[:1] == ["usage-hook"]:  # SubagentStop only (rare): imports the runtime lazily
+        from .usage import hook_main as usage_main
+        return usage_main(argv[1])
     p = argparse.ArgumentParser(prog="orchestrator-kit")
     sub = p.add_subparsers(dest="cmd", required=True)
     pack = lambda s: s.add_argument("--pack", type=Path, default=Path("."), help="company repo (default: current directory)")  # noqa: E731

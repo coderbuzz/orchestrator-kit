@@ -210,9 +210,9 @@ def token_cost(price: dict | None, usage: dict) -> float | None:
     """USD at list price for one call from token usage; None = unpriced (a flat entry without list prices included)."""
     if not price or "in" not in price:
         return None
-    hit = usage.get("cacheReadTokens") or 0
-    return round(((usage.get("inputTokens") or 0) - hit) * price["in"] / 1e6 + hit * price.get("cache_hit", price["in"]) / 1e6
-                 + (usage.get("outputTokens") or 0) * price["out"] / 1e6, 6)
+    hit, write = usage.get("cacheReadTokens") or 0, usage.get("cacheWriteTokens") or 0  # both are part of inputTokens
+    return round(((usage.get("inputTokens") or 0) - hit - write) * price["in"] / 1e6 + hit * price.get("cache_hit", price["in"]) / 1e6
+                 + write * price.get("cache_write", price["in"]) / 1e6 + (usage.get("outputTokens") or 0) * price["out"] / 1e6, 6)
 
 
 def parse_zcode_json(stdout: str) -> tuple[str, dict]:
