@@ -42,7 +42,7 @@ def core_tools(pack: Pack, descriptions: dict | None = None) -> dict[str, dict]:
          "tasks": "List a project's tasks (optionally by status).",
          "task_show": "One task with its result, verification and evidence.",
          "task_add": "Create a task (checks agent, delegation, skill, artifact types, budget, AI selection).",
-         "task_start": "Native-subagent path only: mark a task RUNNING and get the prompt, the subagent and the `model`. Refused when the task's AI names another harness (zcode, agy, ...): use `dispatch`.",
+         "task_start": "Start a task. Native path (AI harness claude-code): mark it RUNNING and get the prompt, the subagent and the `model`. A task whose AI names another harness (zcode, agy, ...) is run on it right here, like `dispatch`: the result has `dispatched`, `status` and `notes`, and there is no subagent to call.",
          "task_submit": "Submit the subagent's agent-result JSON: policy filter, approval gate, actions once, evidence check. "
                         "Returns COMPLETED, PLANNED (retry with feedback), WAITING_APPROVAL, FAILED or BLOCKED. `usage` only where no SubagentStop hook records it.",
          "task_close": "Cancel or fail a task with a reason.",
@@ -165,7 +165,7 @@ class Server:
         agent = c.reg.agents[t["assigned_agent"]]
         skill = c.reg.agent_skill(agent["id"], t["skill"]) if t.get("skill") else None
         if (h := c.reg.ai_for(agent["id"], skill, t.get("ai")).get("harness")) not in (None, "claude-code"):
-            raise Refused(f"task {t['task_id']} runs on worker harness '{h}', not a native subagent: call `dispatch`, not `task_start`")
+            return {"task_id": t["task_id"], "dispatched": True, **c.dispatch(t["task_id"])}  # worker harness: run it here, no subagent to call
         t = c.start(a["task_id"], actor=c.actor)
         _, prompt = c.prompt(t, agent, skill)
         return {"task_id": t["task_id"], "subagent": c.subagent_name(agent["id"]), "attempt": t["attempts"],

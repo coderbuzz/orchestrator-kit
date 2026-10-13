@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+- `task_start` on a task whose resolved AI names a harness other than claude-code now runs it through `dispatch` (fallback
+  order of the approved mapping, budget cap, cost charged) and returns `{dispatched, status, notes}`; no subagent prompt.
+  0.7.1 refused such tasks instead.
+
 ## 0.7.1 (2026-10-13)
 Fix:
 - `task_start` refuses a task whose resolved AI names a harness other than claude-code (it used to hand out a native
