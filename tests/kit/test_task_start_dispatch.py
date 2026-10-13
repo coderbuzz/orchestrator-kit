@@ -15,3 +15,14 @@ def test_task_start_dispatches_a_worker_harness_task(tmp_path):
     assert out["dispatched"] is True and "subagent_prompt" not in out and "status" in out
     assert len(fake.calls) == 1, "the worker ran (which harness answers follows the enabled harnesses and the mapping fallbacks)"
     assert s.call("task_show", {"project": "p", "task_id": t})["attempts"] == 1
+
+
+def test_missing_required_argument_is_refused_by_name(tmp_path):
+    import pytest
+    from orchestrator_kit.mcp import core_tools
+    from orchestrator_kit.pack import Pack
+    from orchestrator_kit.registry import Registry
+    from orchestrator_kit.runtime import Refused
+    s = Server(tmp_path, tools=list(core_tools(Pack.load(Registry().root)).values()))
+    with pytest.raises(Refused, match=r"task_close: missing required argument\(s\) \['outcome'\]"):
+        s.call("task_close", {"project": "p", "task_id": "t", "reason": "x", "why": "x"})

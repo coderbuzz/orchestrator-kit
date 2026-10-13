@@ -122,6 +122,9 @@ class Server:
         h = self.handlers.get(name)
         if h is None:
             raise Refused(f"unknown tool {name}")
+        spec = next((t for t in self.tools if t["name"] == name), None)
+        if spec and (missing := [k for k in spec["inputSchema"]["required"] if k not in a]):
+            raise Refused(f"{name}: missing required argument(s) {missing}")
         return h(self, a)
 
     # ------------------------------------------------------------------ core handlers
