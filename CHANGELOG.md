@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0 (2026-10-13)
+Additive:
+- `task_submit` takes an optional `usage` ({model, total_tokens, tool_uses, duration_ms}, as the Agent tool reports it): the
+  native subagent's consumption is recorded in `usage.jsonl` as harness `native`, never charged (it runs on the session's own
+  account), list-price equivalent None (only a total is known). The default orchestrator skill asks the session to pass it.
+- `usage` adds `today_tokens` and `total_tokens`.
+
 ## 0.4.0 (2026-10-13)
 Charged cost vs list-price equivalent:
 - A call records `cost_usd` (charged; what budgets, the daily cap and the 80% notice count) and `equivalent_cost_usd`

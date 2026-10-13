@@ -44,7 +44,7 @@ def core_tools(pack: Pack, descriptions: dict | None = None) -> dict[str, dict]:
          "task_add": "Create a task (checks agent, delegation, skill, artifact types, budget, AI selection).",
          "task_start": "Mark a task RUNNING (dependencies done, attempts left) and get the prompt and the name of the subagent that does it.",
          "task_submit": "Submit the subagent's agent-result JSON: policy filter, approval gate, actions once, evidence check. "
-                        "Returns COMPLETED, PLANNED (retry with feedback), WAITING_APPROVAL, FAILED or BLOCKED.",
+                        "Returns COMPLETED, PLANNED (retry with feedback), WAITING_APPROVAL, FAILED or BLOCKED. Pass the subagent's `usage` (recorded as data, never charged).",
          "task_close": "Cancel or fail a task with a reason.",
          "dispatch": "Run a task on a worker harness with its AI selection, charge the cost, submit the result.",
          "review": "Record an agent-level approval decision taken by the approver agent's review (never the requester's).",
@@ -68,7 +68,9 @@ def core_tools(pack: Pack, descriptions: dict | None = None) -> dict[str, dict]:
                           "inputs": {"type": "object", "description": "e.g. {\"workdir\": \"<repo folder>\"} for work inside a project repo"}},
                          ["agent", "objective", "criteria"]),
         "task_start": tool("task_start", d["task_start"], {"task_id": S}, ["task_id"]),
-        "task_submit": tool("task_submit", d["task_submit"], {"task_id": S, "result": {"type": "object"}}, ["task_id", "result"]),
+        "task_submit": tool("task_submit", d["task_submit"], {"task_id": S, "result": {"type": "object"}, "usage": {
+            "type": "object", "description": "The subagent's usage as the Agent tool reports it: {model, total_tokens, tool_uses, duration_ms}"}},
+            ["task_id", "result"]),
         "task_close": tool("task_close", d["task_close"], {"task_id": S, "outcome": {"enum": ["cancel", "fail"]}, "why": S},
                            ["task_id", "outcome", "why"]),
         "dispatch": tool("dispatch", d["dispatch"], {"task_id": S}, ["task_id"]),
@@ -167,7 +169,7 @@ class Server:
                 "subagent_prompt": prompt + "\n\n" + harness.contract_section(harness.standalone(c.reg.result_schema))}
 
     def _task_submit(self, _, a):
-        return self.company(a["project"]).submit(a["task_id"], a["result"])
+        return self.company(a["project"]).submit(a["task_id"], a["result"], a.get("usage"))
 
     def _task_close(self, _, a):
         c = self.company(a["project"])

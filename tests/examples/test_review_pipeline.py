@@ -230,3 +230,18 @@ def test_flat_plan_calls_do_not_count_against_the_budget_but_are_kept_as_data(re
     assert (u["today_usd"], u["today_equivalent_usd"], u["total_equivalent_usd"], u["unpriced_calls"]) == (0, 6.0, 6.0, 0)
     assert u["calls"][-1]["equivalent_cost_usd"] == 3.0 and u["calls"][-1]["tokens"] == {"inputTokens": 10}
     assert not [m for m in s.company("pr-7").store.read_log("maintainer/inbox.jsonl") if m["kind"] == "budget"], "no 80% warning"
+
+
+def test_native_subagent_usage_is_recorded_as_data_never_charged(review):
+    s, _, base, _, _ = review
+    t = s.call("task_add", {"project": "pr-7", "agent": "security-reviewer", "objective": "review", "criteria": ["in diff"],
+                            "skill": "security-review", "inputs": {"workdir": "repo"}})
+    s.call("task_start", {"project": "pr-7", "task_id": t})
+    usage = {"model": "opus", "total_tokens": 28840, "tool_uses": 1, "duration_ms": 5400}
+    assert s.call("task_submit", {"project": "pr-7", "task_id": t, "result": result(scope(base)), "usage": usage})["status"] == "COMPLETED"
+    u = s.call("usage", {"project": "pr-7"})
+    [call] = u["calls"]
+    assert (call["harness"], call["model"], call["tokens"], call["cost_usd"], call["equivalent_cost_usd"], call["duration_s"]) == \
+           ("native", "opus", {"totalTokens": 28840}, 0.0, None, 5.4)
+    assert (u["today_usd"], u["today_tokens"], u["unpriced_calls"]) == (0, 28840, 1)
+    assert "usage" in [x for x in s.tools if x["name"] == "task_submit"][0]["inputSchema"]["properties"]
