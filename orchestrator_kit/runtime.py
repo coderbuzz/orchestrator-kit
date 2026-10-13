@@ -87,6 +87,7 @@ class Runtime:
             if unknown:
                 raise Refused(f"{project_dir / pack.project_file}: unknown agents {sorted(unknown)}")
             hired = set(cfg["roster"]) | {a for a, d in c.reg.agents.items() if d["type"] == "orchestrator"}
+            c.off_roster = {a for a in conf["agents"].get("enabled", []) if a not in hired}
             conf["agents"] = {**conf["agents"], "enabled": [a for a in conf["agents"].get("enabled", []) if a in hired]}
         if "default_ai" in cfg:
             conf["models"] = {**conf["models"], "default_ai": cfg["default_ai"]}
@@ -95,6 +96,7 @@ class Runtime:
     def __init__(self, root: Path | None = None, state_dir: Path | None = None, invoke=None, adapters=None):
         self.project_dir: Path | None = None
         self.project: dict = {}
+        self.off_roster: set[str] = set()  # enabled in the company but not hired by this project
         self.reg = Registry(root)
         self.store = Store(state_dir or self.reg.state_dir, self.reg.root)
         self.workspaces_dir = (Path(state_dir) / "workspaces") if state_dir else self.reg.workspaces_dir
@@ -164,6 +166,8 @@ class Runtime:
                  after: list[str] = (), budget_usd: float | None = None, ai: dict | None = None, parent: str | None = None,
                  level: int = 0, decision_options: list[str] | None = None, inputs: dict | None = None, by: str | None = None) -> dict:
         by = by or self.actor
+        if agent in self.off_roster:
+            raise Refused(f"'{agent}' is not on this project's roster (use {self.reg.pack.human_prefix}staff)")
         if agent not in self.reg.agents or agent not in self.reg.enabled_agents:
             raise Refused(f"unknown or disabled agent '{agent}'")
         if by in self.reg.agents and not self.policy.can_delegate(by, agent):
@@ -234,15 +238,18 @@ class Runtime:
             return self._set(t, "FAILED", why, actor)
 
     def submit(self, task_id: str, result: dict) -> dict:
-        """Process an agent-result for a RUNNING task: policy filter, approval gate, actions (exactly once), evidence
+        """Process an agent-result for a RUNNING task: contract check (a violation uses the attempt), policy filter, approval gate, actions (exactly once), evidence
         verification, then COMPLETED, or back to PLANNED with feedback (bounded by attempts), or FAILED / BLOCKED.
         Returns {"status", "notes"}."""
-        if errs := validate_instance("agent-result", result, self.reg.root):
-            raise Refused(f"result violates the agent-result contract: {errs[:3]}")
+        errs = validate_instance("agent-result", result, self.reg.root)
         with self.store.tx():
             t = self.task(task_id)
             if t["status"] != "RUNNING":
                 raise Refused(f"task {task_id} is {t['status']}, not RUNNING")
+            if errs:  # counts as the attempt: the feedback reaches the next start through inputs.previous_attempt_feedback
+                why = f"result violates the agent-result contract: {errs[:5]}"
+                self.audit(t["assigned_agent"], "reject result", why, t, result="rejected")
+                return self._retry_or_fail(t, why)
             t["result"] = {"summary": result["summary"][:3000], "raw": result, "attempt": t["attempts"]}
             self.store.put("tasks", t)
             return self._process(t)
