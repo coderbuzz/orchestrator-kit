@@ -1,0 +1,31 @@
+id: zcode
+name: Zcode (zh)
+version: 2.3.0
+kind: cli
+integration_status: implemented
+verified_with: "zcode v0.5.20 (2026-10-11: `zh providers --available-only` lists the built-in providers and models; `-p --model <provider/model[$level]> --effort <level>`; unknown provider, model or effort is rejected at startup without a model call)"
+invocation:
+  command: zh
+  non_interactive_args: ["--cwd", "{cwd}", "--mode", "{mode}", "--json", "-p", "{prompt}"]
+  model_args: ["--model", "{provider}/{model}"]
+  effort_args: ["--effort", "{effort}"]
+  notes: "No system-prompt flag: the adapter prepends the system prompt to the prompt. Per-call model and effort since v0.5.19 (model_args/effort_args): a model needs its provider (`provider/model`); valid effort levels differ per model (GLM: low|high|max) and zh validates them at startup, so an effort a model lacks fails visibly and the next candidate is tried. 'configured' = zh's own default model (no --model). Mode: plan when the agent has no write/exec capability, yolo when it has execute_command, edit otherwise. Bash is removed with --disallowed-tools when execute_command/run_tests are not granted. Cost = token usage from `--json` x pricing_usd_per_mtok."
+models: [configured, GLM-5.3, GLM-5.3-Flash, GLM-5.2, GLM-5-Turbo]
+cost_reporting: tokens   # `--json` returns {response, usage{inputTokens, outputTokens, cacheReadTokens, ...}} (verified zh v0.5.20, 2026-10-11)
+# USD per million tokens. DeepSeek is no longer routed through zh (Board 2026-10-12: dsh only; prices live in dsh.harness.yaml).
+# Z.AI start plan and coding plan are flat/free: cost 0, usage still recorded. Anthropic has no entry yet: its calls keep the config estimate.
+pricing_usd_per_mtok:
+  "account:zai-start-plan/*": {flat: true}
+  "account:zai-individual-coding-plan/*": {flat: true}
+# Verified in zh v0.5.x source (~/workspace/zh/zh/packages): tool names Read core/src/tool/handlers/read.ts:468, Write write.ts:214,
+# Grep grep.ts:143, Edit edit.ts:257, Glob glob.ts:88, Bash bash.ts:449, WebFetch webfetch-constants.ts:1, WebSearch websearch-support.ts:4;
+# subagent frontmatter `tools` takes these names (core/src/subagent/profile.ts:~250). Used by the plugin generator only; harness.py's zcode builder ignores it.
+capability_tools:
+  read_repository: [Read, Grep, Glob]
+  write_repository: [Edit, Write]
+  execute_command: [Bash]
+  run_tests: [Bash]
+  perform_market_research: [WebSearch, WebFetch]
+providers:   # built into zh (`zh providers`); credentials live in zh's own config, never here
+  - {id: account:zai-individual-coding-plan, auth_env: []}   # Z.AI coding plan, billing: plan (flat rate): GLM-5.3, GLM-5.3-Flash
+  - {id: account:zai-start-plan, auth_env: []}               # Z.AI start plan: GLM-5.3-Flash, GLM-5.2, GLM-5-Turbo

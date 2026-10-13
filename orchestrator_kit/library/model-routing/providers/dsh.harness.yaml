@@ -1,0 +1,29 @@
+id: dsh
+name: dsh (DeepSeek harness, @coderbuzz/dsh)
+version: 0.1.6
+kind: cli
+integration_status: implemented
+pinned_version: 0.1.6   # exact; re-verify (profiling A1-A3 + tests) before moving the pin
+verified_with: "dsh 0.1.6 (2026-10-12: `dsh --json` returns ONE JSON object {status, reply, toolExecutions[], usage{prompt_tokens, completion_tokens, prompt_cache_hit_tokens, prompt_cache_miss_tokens, reasoning_tokens}, failReason, sessionId}; 223 KB of JSON read through a pipe is valid (the 64 KiB truncation of 0.1.2 was fixed in 0.1.4); `dsh --version` prints the version; -e accepts low|high|max|disabled, anything else is rejected at startup; deepseek-v4-pro answers a trivial prompt, not profiled)"
+invocation:
+  command: dsh
+  non_interactive_args: ["--json", "-C", "{cwd}", "--mode", "{mode}", "--timeout", "{timeout}", "-p", "{prompt}"]
+  model_args: ["-m", "{model}"]
+  effort_args: ["-e", "{effort}"]
+  notes: "Exit codes: 0 completed, 1 failed/waiting_for_user, 130 interrupted; all non-zero exits are failed attempts (next route). No system-prompt flag: the adapter prepends the system prompt to the prompt and appends the schema + CONTRACT_GUIDE, exactly as for zcode. Mode: plan when the agent has no write/exec capability, yolo when it has execute_command/run_tests, edit otherwise; bash is removed with `--disallowed-tools bash` when execute_command/run_tests are not granted (dsh's own advice for a read-only agent). --timeout = task timeout minus 5 s, so dsh stops its children and reports `failed` before the Router's own subprocess timeout. Effort `disabled` is never used (profiling: wrong on B4); the model id is `deepseek-flash`, not `deepseek/deepseek-flash`. A truncated or non-JSON stdout is a failed attempt (not retried on the same route; the next route of the mapping runs). DeepSeek runs ONLY through dsh (Board 2026-10-12); zcode no longer lists it. Cost = usage x pricing_usd_per_mtok; prompt_tokens already includes cache hits. Sessions: -r <sessionId> (unused)."
+models: [deepseek-flash, deepseek-v4-pro]
+efforts: [low, high, max]
+cost_reporting: tokens
+# USD per million tokens. DeepSeek: official list price at the PEAK rate (api-docs.deepseek.com/quick_start/pricing, 2026-10-11; off-peak is half), so budgets never under-count (same convention as zcode).
+pricing_usd_per_mtok:
+  "deepseek/deepseek-flash": {in: 0.30, cache_hit: 0.006, out: 1.20}
+  "deepseek/deepseek-v4-pro": {in: 1.32, cache_hit: 0.044, out: 3.96}
+# Tool names from the dsh 0.1.6 source (vendor/ tool definitions). Informational; the builder only uses `bash` (--disallowed-tools).
+capability_tools:
+  read_repository: [read]
+  write_repository: [edit, write]
+  execute_command: [bash]
+  run_tests: [bash]
+  perform_market_research: [WebSearch]
+providers:
+  - {id: deepseek, auth_env: [DEEPCODE_API_KEY]}   # pay-as-you-go; set DEEPCODE_API_KEY in the environment

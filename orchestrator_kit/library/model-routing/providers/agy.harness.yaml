@@ -1,0 +1,28 @@
+id: agy
+name: Antigravity CLI (Google)
+version: 1.3.3
+kind: cli
+integration_status: implemented
+verified_with: "agy v1.3.3 (2026-10-12: `agy -p --output-format json` returns {conversation_id, status, response, usage{input_tokens, output_tokens, thinking_tokens, cache_read_tokens}, denied_actions?}; `agy models` lists 14 ids; permission behaviour audited in a scratch dir, see invocation.notes). Login: first-time interactive TUI (Google OAuth), credential kept on the VM; never automate it."
+invocation:
+  command: agy
+  non_interactive_args: ["--output-format", "json", "-p", "{prompt}"]
+  model_args: ["--model", "{model}"]
+  # no effort_args: effort is part of the model id (gemini-*-low|medium|high); agy rejects `--effort` together with a suffixed model
+  # ("conflicts with --effort"), so an effort in a selection is reported unsupported and the next route is tried.
+  notes: "No cwd or system-prompt flag: the adapter runs agy in the task cwd and prepends the system prompt to the prompt; the result contract is appended as for zcode. PERMISSION (audited v1.3.3, 2026-10-12): print mode does NOT hang. Without --dangerously-skip-permissions, view_file/write_to_file/replace_file_content work inside cwd (write also in /tmp), while run_command, read_url_content/search_web and any read or write outside cwd (e.g. $HOME) are auto-denied: exit 0, empty response, JSON `denied_actions: [{action, display_name}]` (the adapter turns that into a failed attempt so the next route is tried). The adapter ALWAYS adds --dangerously-skip-permissions (Board approval 2026-10-12: \"saya oke agy dengan flag (auto approve)\", scope chosen: flag always, all agy tasks), because without it Gemini models end text-only tasks EMPTY after an auto-denied run_command (profiling 2026-10-12); the flag auto-approves ALL tools (shell, network, anywhere the user can write), `--sandbox` did not restrict writes outside cwd or network on this Linux VM, and `--mode plan` still wrote a requested file: no verified read-only mode, no per-call tool list. Risk accepted by the Board; still avoid routing untrusted content (injection, hostile runbooks) to agy. Errors: bad model or `--effort` with a suffixed model -> exit 1 with status ERROR before any call; model/agent error mid-run -> exit 3 + AGY_ERROR line; `--print-timeout` returns partial output with status SUCCESS (empty response = failure). `--json-schema` returns `structured_output` (not used yet). Cost = usage from --output-format json x pricing_usd_per_mtok; Google AI Pro is flat (cost 0, tokens recorded); input_tokens excludes cache reads. Sessions: --continue / --conversation <id>."
+models: [gemini-3.8-flash-low, gemini-3.8-flash-medium, gemini-3.8-flash-high, gemini-3.7-flash-low, gemini-3.7-flash-medium, gemini-3.7-flash-high, gemini-3.6-flash-low, gemini-3.6-flash-medium, gemini-3.6-flash-high, gemini-3.1-pro-low, gemini-3.1-pro-high, claude-sonnet-4-6, claude-opus-4-6-thinking, gpt-oss-120b-medium]
+cost_reporting: tokens   # `--output-format json` returns {response, usage{input_tokens, output_tokens, cache_read_tokens, total_tokens}} (verified agy v1.3.3, 2026-10-12)
+# Google AI Pro = flat plan: cost 0, usage still recorded.
+pricing_usd_per_mtok:
+  "account:google-ai-pro/*": {flat: true}
+# Tool names from the live tool list of agy v1.3.3 (`--dangerously-skip-permissions`, 2026-10-12); the list showed no grep/glob/list-dir tool.
+# Informational: agy has no per-call tool allow-list; the builder always passes --dangerously-skip-permissions.
+capability_tools:
+  read_repository: [view_file]
+  write_repository: [write_to_file, replace_file_content]
+  execute_command: [run_command]
+  run_tests: [run_command]
+  perform_market_research: [search_web, read_url_content]
+providers:
+  - {id: account:google-ai-pro, auth_env: []}   # login TUI sekali, credential tersimpan; billing: plan flat

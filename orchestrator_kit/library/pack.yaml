@@ -1,0 +1,24 @@
+# Role library of orchestrator-kit. `orchestrator-kit new-company` copies the base of it (this manifest, policies, capabilities,
+# routing, config, the orchestrator) into a new company repo and rewrites the names; `orchestrator-kit hire <role>` copies one
+# role with the skills, policies, capabilities and model policies it needs. It is itself a valid pack (tests validate it).
+name: company
+server: company
+project_file: company.yaml
+state_dir: .company
+human: {id: board, tool_prefix: board_}
+preamble: agents/shared/preamble.md
+def_keys: [id, name, role, mission, responsibilities, non_responsibilities, authority, success_criteria, escalation_rules]
+plugin:
+  version: 0.1.0
+  author: Company
+  description: "Talk to the CEO, who runs workspace projects with the company's agents under policy guardrails."
+mcp:
+  command: orchestrator-kit
+  args: [mcp, .]
+  instructions: "Company tools. The CEO skill describes how to use them."
+hook:
+  command: "orchestrator-kit hook .company board_"
+  description: "board_* tools always ask the human; project state is off-limits to the shell and edit tools."
+vocabulary:
+  departments: [executive, engineering, product, finance, operations, marketing, sales, customer, research, data, legal]
+  policy_domains: [authority, security, finance, production, communication, governance]

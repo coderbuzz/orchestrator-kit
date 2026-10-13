@@ -1,0 +1,32 @@
+id: code-review
+name: Code review
+description: Review a code change for correctness, security, simplicity and test coverage, with severity-rated findings.
+version: 1.0.0
+purpose: Catch defects and risky patterns before a change is released, independently of the author.
+inputs:
+- commit sha or diff range in the task workspace (from dependency results)
+- requirements and acceptance criteria
+- architecture_document (if any)
+outputs: [code_review]
+preconditions: [The change to review exists in the workspace repository, The reviewer did not author the change]
+procedure:
+- Identify the exact change (`git show <sha>` or `git diff <base>..<head>`) and read the related requirements.
+- 'Check correctness: does the code do what each acceptance criterion says, including edge cases and error paths?'
+- 'Check security: hard-coded secrets, injection, missing authn/z, unsafe input handling, sensitive data in logs.'
+- 'Check simplicity: unnecessary abstractions, dependencies or dead code; reimplemented standard library.'
+- 'Check tests: each criterion and edge case covered; run the test suite and note the result.'
+- Write each finding with file:line, severity (critical, high, medium, low, info) and a concrete fix.
+- 'Set verdict: approve (no critical/high), changes_requested (any critical/high), or needs_discussion.'
+- Return a code_review artifact with findings in content and evidence {verdict, findings}.
+validation:
+- 'code_review evidence: verdict is a string (approve, changes_requested or needs_discussion); findings is a list (may be empty)'
+- Every finding names a location and a severity
+- Verdict is changes_requested whenever a critical or high finding exists
+failure_modes:
+- mode: Change not found in the workspace
+  handling: Return status blocked naming the missing commit or branch.
+- mode: Tests cannot be run
+  handling: Review statically, state that tests were not run, and lower confidence in the summary.
+- mode: Change too large to review well
+  handling: Review the highest-risk parts first, say what was not reviewed, and recommend splitting.
+required_capabilities: [read_repository, run_tests]

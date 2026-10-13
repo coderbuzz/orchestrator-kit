@@ -1,0 +1,31 @@
+id: lead-generation
+name: Lead generation
+description: Find companies that fit the ideal customer profile from public business sources and record them as leads in the internal pipeline.
+version: 1.0.0
+purpose: Fill the sales pipeline with qualified-looking companies found from verifiable public business information.
+inputs:
+- product and gtm_plan (target segment, positioning)
+- ideal customer profile (ICP) if defined
+- number of leads wanted from the task contract
+outputs: [sales_lead]
+preconditions: [Target segment or ICP is stated]
+procedure:
+- 'Write the ICP: industry, company size, location, technology or trigger signals, and disqualifiers.'
+- Choose public sources (company websites, business directories, public registries, job posts, press releases) and record their URLs.
+- Search for companies matching the ICP; collect only public business information (company name, segment, website, public business contact channel). Do not scrape or store personal data about individuals.
+- Score fit 0-100 against the ICP criteria with a one-line reason; drop low-fit companies.
+- De-duplicate against the existing pipeline (read_customer_data / company state).
+- 'Record each lead through an action {capability: create_sales_lead, params: {company, segment, source_url, fit_score, stage: "new"}, reason}; do not put leads in state_updates.'
+- After the orchestrator returns lead ids, return one sales_lead artifact per lead (or a batch artifact) with evidence {lead_id, stage, source}.
+validation:
+- 'sales_lead evidence: lead_id is the id returned by create_sales_lead; stage is "new"; source is the public source URL'
+- Every lead has a public source URL and a fit_score with reason
+- No personal data about individuals beyond public business contact channels
+failure_modes:
+- mode: Few or no matching companies
+  handling: Report the count found, the sources searched, and suggest an ICP adjustment.
+- mode: create_sales_lead fails or returns no id
+  handling: Report status partial with the lead list in content and no sales_lead evidence for unrecorded leads.
+- {mode: Source requires login or forbids scraping, handling: Skip it and use another public source.}
+required_capabilities: [perform_market_research, create_sales_lead]
+model_policy: research

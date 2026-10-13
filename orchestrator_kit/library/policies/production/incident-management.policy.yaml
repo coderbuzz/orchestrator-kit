@@ -1,0 +1,9 @@
+id: incident-management
+name: Incident management
+version: 1.1.0
+domain: production
+description: How production failures are handled.
+rules:
+  - {id: deploy-failure-incident, statement: "A failed irreversible action (e.g. a production deployment) fails its task and is written to the Board inbox.", enforcement: deterministic}
+  - {id: no-blind-retry-of-deploys, statement: "A failed irreversible action is never retried automatically; the orchestrator decides with the incident evidence.", enforcement: deterministic}
+  - {id: rollback-first, statement: "When production is degraded, prefer rollback over forward fixes.", enforcement: advisory}

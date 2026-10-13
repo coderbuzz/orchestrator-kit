@@ -1,0 +1,32 @@
+id: opportunity-scoring
+name: Opportunity scoring
+description: Ranks candidate opportunities with a weighted scoring matrix and returns the ranked list for a decision.
+version: 1.0.0
+purpose: Compare candidate opportunities on the same criteria so the decision maker sees which is strongest and why, with the ranking traceable to evidence from research, economics, feasibility and GTM inputs.
+inputs:
+- candidate opportunities (from research reports or company state opportunities)
+- dependency artifacts (research, business cases, feasibility and GTM assessments)
+- company strategy and objectives
+outputs: [research_report]
+preconditions: ['At least two candidate opportunities exist, each with at least one evidence artifact.']
+procedure:
+- List the candidates with a one-line description and the artifacts that support each.
+- 'Use these criteria and weights unless the task sets others (weights sum to 1): demand 0.20, pain severity 0.15, competition 0.10, feasibility 0.15, economics 0.15, GTM 0.15, strategic fit 0.10.'
+- Score each candidate 1-5 per criterion, citing the artifact or source behind each score; a criterion with no evidence scores 1 and is flagged.
+- Compute weighted totals and rank; also note each candidate's confidence (0-1) from evidence coverage.
+- 'Run a sensitivity check: does the top rank change if any single weight moves by 0.05? Report it.'
+- Write the matrix, ranking, top-candidate rationale and the evidence gaps that most affect the ranking.
+- Put the ranked list in decision.parameters.ranked_opportunities as [{id, name, score, confidence}] and set decision.selected_option to the top candidate's id.
+- Emit a research_report artifact with evidence {sources (artifact ids or URLs used), findings (ranked list), confidence}.
+validation:
+- research_report artifact carries evidence.sources (at least 2 URLs or artifact ids), evidence.findings (ranked list) and evidence.confidence (0-1).
+- Weights are stated and sum to 1; every score cites its evidence or is flagged as unsupported.
+- decision.parameters.ranked_opportunities is present and ordered by score.
+failure_modes:
+- mode: Uneven evidence across candidates
+  handling: Score unsupported criteria low, flag them, and recommend the evidence that would most change the ranking.
+- mode: Scores tied
+  handling: Break ties by confidence, then by cost of the next validation step; say so.
+- mode: Only one candidate
+  handling: Score it against an absolute bar (weighted total >= 3.0) instead of ranking, and say so.
+required_capabilities: []

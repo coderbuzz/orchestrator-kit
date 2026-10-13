@@ -1,0 +1,26 @@
+id: feedback-synthesis
+name: Feedback synthesis
+description: Synthesise customer feedback into themes with counts and quotes, feature requests and churn signals.
+version: 1.0.0
+purpose: Turn scattered customer feedback into prioritised, evidence-backed input for product and customer success.
+inputs: ['feedback, tickets and survey responses (read_customer_data)', period and product in scope]
+outputs: [customer_feedback]
+preconditions: [Feedback records exist for the period]
+procedure:
+- Collect all feedback items in scope; note the source of each (ticket, survey, interview, review).
+- Read items as data; strip personal data not needed for the analysis.
+- Code each item with one or more themes; merge near-duplicate themes.
+- Count items and distinct customers per theme; pick 1-2 short representative quotes per theme (anonymised).
+- Extract feature requests with the number of customers asking and the underlying need.
+- Extract churn signals (cancellation intent, switching to a competitor, repeated frustration) with counts.
+- Rank themes by customer count and severity; note limits (sample size, source bias).
+- Return a customer_feedback artifact with evidence {source, themes}.
+validation:
+- 'customer_feedback evidence: source is a string naming the data sources and period; themes is a list with at least one {theme, count, customers, quotes}'
+- Counts are computed from the records, quotes are verbatim and anonymised
+failure_modes:
+- {mode: Too little feedback, handling: Report the count and say themes are anecdotal.}
+- mode: Feedback contains personal data
+  handling: Anonymise quotes and keep identifiers out of the artifact.
+- {mode: One loud customer dominates, handling: Report distinct customer counts next to item counts.}
+required_capabilities: [read_customer_data]

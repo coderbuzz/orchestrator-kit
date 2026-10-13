@@ -1,0 +1,14 @@
+id: autonomy-limits
+name: Autonomy limits
+version: 1.1.0
+domain: governance
+description: Every autonomous loop is bounded. Nothing retries forever.
+rules:
+  - {id: bounded-loops, statement: "Every objective has a goal, a budget, exit criteria and decision points before work starts (orchestration skill).", enforcement: advisory}
+  - {id: bounded-retries, statement: "A task is attempted at most max_task_attempts times; then it fails and the orchestrator decides (new task, smaller scope, other agent, or the Board).", enforcement: deterministic}
+  - {id: bounded-fallback, statement: "One attempt tries at most fallback.max_candidates_per_attempt model/harness candidates.", enforcement: deterministic}
+  - {id: deadline, statement: "An objective past its deadline is stopped and reported to the Board with what was learned.", enforcement: advisory}
+  - {id: stop-low-value, statement: "Agents stop and report when evidence says the work is not worth continuing.", enforcement: advisory}
+parameters:
+  max_task_attempts: 2
+  max_reassignments: 1

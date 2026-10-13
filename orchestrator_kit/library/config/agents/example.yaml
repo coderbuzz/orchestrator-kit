@@ -1,0 +1,18 @@
+# Agents of the company (its catalog). Projects hire their team from these (project roster).
+enabled:
+- ceo
+- cto
+- cpo
+- cfo
+- market-research
+- fullstack-developer
+- qa-engineer
+- devops-sre
+- cmo
+- cro
+- content-marketer
+- growth-marketer
+- sales-development
+- customer-success
+- customer-support
+overrides: {}

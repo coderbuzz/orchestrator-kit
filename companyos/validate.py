@@ -3,5 +3,7 @@ import sys
 
 from orchestrator_kit.validate import main
 
+from . import ROOT
+
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main(sys.argv[1:] or [str(ROOT)]))

@@ -1,0 +1,32 @@
+id: market-positioning
+name: Market positioning
+description: Define the target segment, positioning statement, messaging pillars and pricing-page message for a product.
+version: 1.0.0
+purpose: Give marketing, sales and product one consistent answer to who the product is for, why it wins, and how to say it.
+inputs:
+- product description and requirements
+- research_report artifacts (market, segments, competitors) from dependency results
+- pricing guidance (if any)
+outputs: [gtm_plan]
+preconditions: [The product and its core value are described]
+procedure:
+- Read the market and competitor research; list segments with their main pain and current alternative.
+- Pick one primary target segment (who, size, where reachable) and justify it with cited evidence.
+- 'Write the positioning statement: For <segment> who <need>, <product> is a <category> that <key benefit>; unlike <alternative>, it <differentiator>.'
+- Define 3-4 messaging pillars, each with a claim and the proof that supports it; drop claims that have no proof.
+- 'Write the pricing page message: headline, plan framing and value anchor, consistent with pricing guidance (no prices invented).'
+- Choose 2-4 launch channels where the segment can be reached, with the reason for each.
+- 'Check claims for honesty: no unverifiable superlatives, no competitor disparagement.'
+- Return a gtm_plan artifact with evidence {target_segment, positioning, channels} and cited sources in content.
+validation:
+- 'gtm_plan evidence: target_segment is a non-empty string; positioning is the positioning statement; channels is a list with at least one channel'
+- Each messaging pillar has supporting proof or is marked as a hypothesis
+- Segment and competitor claims cite source URLs or research artifact ids
+failure_modes:
+- mode: No research available
+  handling: Run a short public-source scan; if still thin, mark the positioning as hypothesis with low confidence and propose a market-research task.
+- mode: No clear differentiator
+  handling: Say so plainly and recommend a product or segment change as a decision for the owner.
+- mode: Pricing not yet decided
+  handling: Write the pricing message without numbers and propose a pricing-analysis task.
+required_capabilities: [perform_market_research]

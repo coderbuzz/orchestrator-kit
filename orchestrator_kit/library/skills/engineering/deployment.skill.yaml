@@ -1,0 +1,35 @@
+id: deployment
+name: Deployment
+description: Request a staging or production deployment through orchestrator actions and report only verified deployments.
+version: 1.0.1
+purpose: Get a validated build running in an environment through the orchestrator's deployment adapters, never by claiming it.
+inputs:
+- release candidate (commit sha, version) and release_report
+- test_result for the commit
+- staging deployment artifact (required for production)
+- approval record (required for production)
+outputs: [deployment]
+preconditions:
+- A release_report with verdict go exists for this commit and target environment
+- 'Production only: a staging deployment artifact for the same build passed its health check, and approval is recorded at the level policy requires'
+procedure:
+- Confirm the candidate (commit sha, version) and target environment from the task contract.
+- 'Check the gates in policies/production/deployment-gates.policy.yaml: tests-green, rollback-plan, and for production staging-first and production-approval; stop if any fails.'
+- Read current metrics (error rate, latency) as the baseline to compare after deployment.
+- 'Request the deployment as an action: {capability: deploy_staging or deploy_production, params: {commit, version, environment}, reason}. You never deploy directly; the orchestrator executes it through an adapter.'
+- 'If your capabilities list marks the deploy capability UNAVAILABLE, return status blocked with blocked_reason naming it (e.g. "deploy_staging unavailable: no adapter configured").'
+- 'Do not create a deployment artifact yourself: the orchestrator runs the action after you return and records the deployment artifact {environment, url, version} from the adapter, then health-checks the url.'
+- After deployment, compare metrics with the baseline; on degradation recommend rollback and trigger incident-response, never a blind retry.
+validation:
+- 'deployment evidence: environment is staging or production, url passes the orchestrator''s independent HTTP health check (http_ok, 2xx), version matches the release candidate'
+- Never claim a deployment happened without a deployment artifact whose evidence passes the health check
+- Production deployment references a staging deployment artifact for the same version and a recorded approval
+failure_modes:
+- mode: Deployment capability unavailable
+  handling: Return status blocked with blocked_reason naming deploy_staging or deploy_production; produce no deployment artifact.
+- mode: Gate not met
+  handling: Return status blocked naming the gate; request approval via request_approval or a follow-up task for missing evidence.
+- mode: Health check fails after deploy
+  handling: Report status failed, recommend rollback to the previous version, and start incident-response; do not retry production automatically.
+- {mode: Approval denied, handling: Stop; report status blocked with the approver's reason.}
+required_capabilities: [deploy_staging, read_metrics]

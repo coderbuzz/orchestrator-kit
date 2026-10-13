@@ -1,0 +1,29 @@
+id: seo
+name: SEO
+description: Research keywords with sources and produce an on-page SEO plan and brief for a page or content piece.
+version: 1.0.0
+purpose: Make content findable by the target segment through evidence-based keyword choice and on-page structure.
+inputs:
+- page or topic and target segment
+- gtm_plan (positioning, segment) from dependency results
+- target language and market (e.g. Indonesian, English)
+outputs: [content]
+preconditions: [Topic and target market are stated]
+procedure:
+- List seed terms the target segment would search for, in the target language.
+- Research public sources (search results, competitor pages, public keyword tools) for related terms, intent and competition; record URLs.
+- Group keywords by intent (informational, commercial, transactional) and pick one primary and 3-5 secondary keywords per page, with the reason.
+- 'Analyse the current top results: format, depth, what they miss.'
+- 'Write the on-page plan: title tag, meta description, H1/H2 outline, internal links, schema markup type, image alt text, URL slug.'
+- 'Note technical basics to check: indexability, page speed, mobile layout.'
+- 'Return a content artifact holding the SEO brief, with evidence {channel: "seo", publication_status: "draft"} and sources in content.'
+validation:
+- 'content evidence: channel is a non-empty string (e.g. "seo" or the page''s channel); publication_status is "draft"'
+- Every keyword choice cites at least one source URL; volume figures are labelled as estimates with their source
+failure_modes:
+- mode: No keyword volume data available
+  handling: Rank by intent and SERP evidence, label volumes as unknown, and lower confidence.
+- {mode: Topic too competitive, handling: Recommend long-tail or local-language variants with evidence.}
+- {mode: Sources disagree, handling: Report the range and the sources.}
+required_capabilities: [perform_market_research]
+model_policy: research

@@ -1,0 +1,39 @@
+id: executive-decision
+name: Executive decision
+description: Chooses one option from a task's decision_options by synthesizing executive and worker inputs against a fixed decision framework.
+version: 1.0.0
+purpose: Make a single, reasoned, recorded decision at a gate (e.g. after discovery or evaluation) using evidence from the dependency results. Inputs are synthesized and weighed, not voted on; the decision is explicit about confidence, risk and reversibility so it can be audited and revisited.
+inputs:
+- decision_options from the task contract
+- dependency results (research reports, business cases, feasibility and GTM assessments, financial analyses)
+- company state (strategy, objectives, budgets, risks, prior decisions)
+outputs: [decision_record]
+preconditions:
+- The task lists decision_options.
+- At least one dependency result with evidence is available; otherwise the decision is DEFER or blocked.
+procedure:
+- List the decision_options exactly as given; do not invent new options.
+- Collect the inputs from dependency results and note which ones are missing, failed verification or are labeled as assumptions.
+- 'Score each option against the framework: strategic alignment, customer value, revenue potential, cost, time to value, technical feasibility, market evidence, risk, confidence, opportunity cost, reversibility. Write one line per criterion for the leading options.'
+- 'Synthesize the executive inputs: where they disagree, weigh the one with stronger evidence and say which input drove the call. Do not count votes.'
+- 'For discovery gates use these thresholds: BUILD only when confidence >= 0.6, unit economics are positive (contribution margin > 0 under stated assumptions), a feasible MVP fits the remaining budget, and a GTM path exists. VALIDATE_MORE only when a specific, named evidence gap can be closed within the remaining budget and time; name the experiment. DEFER when the opportunity is plausible but timing, budget or dependencies block it now. REJECT when evidence shows weak demand, negative economics, infeasibility or unacceptable risk.'
+- Select one option. Fill decision.selected_option, options_considered (id, summary, pros, cons), reasoning_summary (concise rationale citing the decisive evidence), confidence (0-1), impact, risk, reversibility, cost_estimate_usd, and parameters needed by the option's effects (e.g. product_name, budget_usd, experiment, target).
+- If the decision is irreversible or above your approval level, add a request_approval action instead of acting.
+- Emit a decision_record artifact with the framework scoring and rationale in content and evidence {selected_option}.
+validation:
+- decision.selected_option is one of the task's decision_options.
+- decision has reasoning_summary, confidence, impact, risk, reversibility and options_considered for at least two options.
+- BUILD is selected only if confidence >= 0.6, unit economics are positive and an MVP is feasible within budget, each traceable to a dependency artifact.
+- VALIDATE_MORE names the evidence gap and the experiment and its cost fits the remaining budget.
+- decision_record artifact carries evidence.selected_option equal to decision.selected_option.
+failure_modes:
+- mode: Key inputs missing or failed verification
+  handling: Treat the gap as negative evidence; choose VALIDATE_MORE or DEFER (or block) rather than BUILD, and list the missing inputs.
+- mode: Executive inputs conflict
+  handling: Name the conflict, weigh by evidence quality, and lower confidence accordingly.
+- mode: Decision exceeds approval authority
+  handling: Record the decision and request approval at the required level; do not trigger its effects directly.
+- mode: Options do not fit the situation
+  handling: Pick the closest conservative option (DEFER over BUILD) and explain in reasoning_summary what option is missing.
+required_capabilities: [record_decision]
+model_policy: strategic

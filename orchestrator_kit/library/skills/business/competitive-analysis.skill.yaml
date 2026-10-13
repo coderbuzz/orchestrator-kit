@@ -1,0 +1,29 @@
+id: competitive-analysis
+name: Competitive analysis
+description: Maps competitors and alternatives for a problem or product, including pricing, positioning, gaps and switching costs.
+version: 1.0.0
+purpose: 'Show how customers solve the problem today and where an opening exists: who competes, at what price, with what positioning, what they miss and how hard it is for customers to switch.'
+inputs: ['problem, product brief or category', target segment, task budget]
+outputs: [research_report]
+preconditions: [The category or problem is specific enough to name alternatives.]
+procedure:
+- List direct competitors, indirect alternatives (spreadsheets, agencies, in-house tools) and the do-nothing option.
+- Keep to the most relevant 5-8 alternatives and at most about 15 sources; stop at the task budget.
+- 'For each, record from dated sources: target customer, positioning statement, pricing model and published price points, key features, notable weaknesses (from reviews and forums), traction signals (funding, headcount, reviews count).'
+- 'Assess switching costs per alternative: data migration, integrations, contracts, retraining, habit.'
+- 'Identify gaps: needs that reviews show are unmet, underserved segments, pricing gaps, and moats that make entry hard.'
+- Summarize in a comparison table and a short list of exploitable gaps with evidence.
+- Score confidence 0-1; mark pricing not publicly listed as unknown.
+- Emit a research_report artifact with evidence {sources, findings, confidence}.
+validation:
+- research_report artifact carries evidence.sources (at least 2 URLs or artifact ids), evidence.findings (non-empty) and evidence.confidence (0-1).
+- The comparison covers pricing, positioning, gaps and switching costs for each alternative, with unknowns marked.
+- Each claimed gap cites at least 2 independent sources or is marked as hypothesis.
+failure_modes:
+- mode: Pricing not public
+  handling: Mark as unknown or quote-based; do not estimate without labeling it an assumption.
+- mode: Crowded market with no visible gap
+  handling: Report that finding plainly; it is evidence against entry.
+- {mode: Budget exhausted, handling: Return partial with alternatives covered so far.}
+required_capabilities: [perform_market_research]
+model_policy: research

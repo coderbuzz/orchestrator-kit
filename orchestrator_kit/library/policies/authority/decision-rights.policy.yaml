@@ -1,0 +1,23 @@
+id: decision-rights
+name: Decision rights
+version: 1.1.0
+domain: authority
+description: Who decides what. Executives analyse and recommend; the CEO decides company-level matters within its authority; the Board decides material matters. No voting between agents.
+rules:
+  - {id: ceo-decides, statement: "Company-level decisions (build/validate/defer/reject, prioritization, resource allocation, stop of non-live work) are made by the CEO and recorded as decision objects.", enforcement: deterministic}
+  - {id: no-agent-voting, statement: "Executive outputs are inputs to the decision owner, never votes.", enforcement: advisory}
+  - {id: board-reserved, statement: "Actions in parameters.board_reserved need Board approval (level 4) unless the Board directive itself requested that exact action.", enforcement: deterministic}
+  - {id: delegation-chain, statement: "An agent may create tasks only for itself or agents in its delegates_to closure (checked by `task add`).", enforcement: deterministic}
+  - {id: approver-chain, statement: "An approval request goes up the requester's reports_to chain to the first agent whose max_approval_level covers it; above the CEO it goes to the Board.", enforcement: deterministic}
+parameters:
+  # action classes the orchestrator maps to approval level 4 (Board)
+  board_reserved:
+    - leave_live_stage          # pausing, deprecating or stopping a product in PRODUCTION/GO_TO_MARKET/GROWTH/OPTIMIZATION
+    - pivot                     # CEO decision PIVOT
+    - legal_commitment          # sign_contract
+    - payment                   # process_payment
+    - acquisition
+    - spend_above_level_4_usd   # spending above approval-levels thresholds.level_4_usd
+  material_level_3:
+    - production_deploy
+    - build_new_product         # CEO decision BUILD starts a product build

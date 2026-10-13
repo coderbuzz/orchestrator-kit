@@ -1,0 +1,32 @@
+id: campaign
+name: Campaign
+description: Plan a marketing campaign with channel, audience, assets, budget and measurable targets.
+version: 1.0.0
+purpose: Turn positioning into a concrete, measurable campaign that can be launched and judged against targets.
+inputs:
+- gtm_plan and content drafts from dependency results
+- campaign goal and budget from the task contract
+- current marketing metrics (read_metrics)
+outputs: [campaign]
+preconditions: [Goal and budget are stated]
+procedure:
+- Restate the goal as one measurable outcome (e.g. qualified leads, signups) and the period.
+- Read current metrics to set a baseline (traffic, conversion, cost per lead) where they exist.
+- Choose the channel(s) that reach the target segment within budget, with the reason.
+- Define audience, offer, message, assets needed (reuse content drafts) and schedule.
+- Set targets per metric (reach, clicks, conversions, cost per acquisition) derived from baseline or stated assumptions; label them as targets.
+- Define tracking (UTM parameters, conversion events) and a stop/scale rule.
+- Request publication or launch via a publish_content action; it is currently unavailable, so publication_status stays draft or not_published.
+- Return a campaign artifact with evidence {channel, publication_status, metrics}.
+validation:
+- 'campaign evidence: channel is a non-empty string; publication_status is "draft" or "not_published: publish_content unavailable" unless the orchestrator confirmed launch; metrics is an object whose values are labelled as targets when the campaign is not live (e.g. {"target_signups": 50})'
+- Spend in the plan does not exceed the task budget
+- Targets state their assumptions or baseline source
+failure_modes:
+- mode: No baseline metrics
+  handling: Use cited industry benchmarks or explicit assumptions and label targets accordingly.
+- mode: Budget too small for the goal
+  handling: Report the gap with numbers and propose a smaller goal or a decision for the owner.
+- mode: Launch capability unavailable
+  handling: Deliver the ready plan with publication_status not_published and name publish_content in the summary.
+required_capabilities: [read_metrics]

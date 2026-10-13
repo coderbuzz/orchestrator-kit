@@ -1,0 +1,33 @@
+id: testing
+name: Testing
+description: Independently design and run tests from the acceptance criteria and report a QA verdict.
+version: 1.0.0
+purpose: Verify a change against its acceptance criteria with tests the implementer did not write, so passing means the requirement is met.
+inputs:
+- requirements_document and acceptance criteria
+- commit under test (from dependency results)
+- task workspace git repository
+outputs: [test_result, qa_report]
+preconditions: [Acceptance criteria are available, The commit under test is present in the workspace repository]
+procedure:
+- Read the acceptance criteria before reading the implementation; derive test cases (happy path, boundaries, invalid input, error paths, regressions) from them.
+- Check out or confirm the commit under test (`git log -1`).
+- Write the new tests using the project's existing test framework; keep them independent of implementation details.
+- Run the full suite and record the exact command, exit code, passed and failed counts.
+- For each acceptance criterion, record a check {criterion, test, result} with pass or fail.
+- Commit the new tests (`git add` + `git commit`) so they stay as regression coverage.
+- 'Set the QA verdict: pass only if every criterion has a passing check and the suite is green; otherwise fail with the failing checks.'
+- Return test_result {command, exit_code, passed, failed} and qa_report {verdict, checks}.
+validation:
+- 'test_result evidence: command is the exact command run, exit_code equals 0, passed >= 1, failed equals 0'
+- 'qa_report evidence: verdict is a string (pass or fail); checks is a list with at least one entry, one per acceptance criterion'
+- A failing check is reported with the failing test and output, never omitted
+failure_modes:
+- mode: Tests fail
+  handling: Report verdict fail with failing checks and the real counts; status partial or failed. Do not fix product code in this skill; propose a debugging follow-up.
+- mode: Acceptance criteria not testable
+  handling: List which criteria and why; test the testable ones and return verdict fail or status partial.
+- mode: Environment cannot run the suite
+  handling: Return status blocked with the error output and the missing dependency.
+required_capabilities: [read_repository, write_repository, run_tests]
+model_policy: coding

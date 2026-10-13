@@ -1,0 +1,30 @@
+id: customer-onboarding
+name: Customer onboarding
+description: Build an onboarding plan that gets a new customer to first value quickly.
+version: 1.0.0
+purpose: Reduce time to first value and early churn with a concrete, owned onboarding plan per customer.
+inputs:
+- customer record and purchased scope (read_customer_data)
+- product documentation and known setup steps
+- signed proposal or plan terms (if any)
+outputs: [plan]
+preconditions: [The customer exists in company state with their purchased product or scope]
+procedure:
+- 'Read the customer record: product, plan, goals stated in the sale, contacts by role.'
+- 'Define first value: the first outcome the customer would recognise as success, and a target date.'
+- 'List the steps to reach it: account setup, data import or integration, configuration, training, first use, check-in.'
+- Give each step an owner (customer or the company role), a due date offset and a done criterion.
+- Add health checkpoints (day 7, day 30) with the usage signal to look for.
+- Note risks (missing integration, unclear owner, data quality) and mitigation.
+- Draft the welcome message; sending needs the send_email action, which this skill does not perform.
+- Return a plan artifact with evidence {steps}.
+validation:
+- 'plan evidence: steps is a list with at least one step, each with owner and done criterion'
+- Plan names the first-value outcome and its target date
+failure_modes:
+- mode: Customer goals unknown
+  handling: Make the kickoff step a goals interview and mark later steps provisional.
+- mode: Required integration not supported
+  handling: Flag to engineering as a follow-up task and adjust the plan.
+- {mode: Customer record incomplete, handling: List the missing fields and proceed with what is known.}
+required_capabilities: [read_customer_data]

@@ -1,0 +1,30 @@
+id: gtm-assessment
+name: GTM assessment
+description: Judge whether a product can be taken to market profitably, with channels and CAC assumptions.
+version: 1.0.0
+purpose: Tell decision makers whether the company can reach and acquire customers for a product at an acceptable cost.
+inputs:
+- product description and target segment
+- research_report artifacts (market, competitors) from dependency results
+- pricing or unit-economics inputs (if any)
+outputs: [feasibility_assessment]
+preconditions: [Product and intended customer are described]
+procedure:
+- State the target segment and the buying decision (who buys, who uses, budget owner).
+- Research where the segment can be reached (channels, communities, marketplaces, partners) and cite sources.
+- For each candidate channel, estimate CAC with explicit assumptions (cost per click or contact, conversion rates) and cite benchmark sources.
+- Compare CAC with expected revenue per customer (price x expected lifetime) where data exists; flag if CAC payback exceeds 12 months.
+- 'List GTM risks: crowded channel, long sales cycle, low willingness to pay, regulatory limits on marketing.'
+- Decide verdict feasible, feasible_with_risks or not_feasible and a confidence 0-1.
+- Return a feasibility_assessment artifact with evidence {verdict, risks, confidence}; channels and CAC assumptions go in content.
+validation:
+- 'feasibility_assessment evidence: verdict is one of feasible, feasible_with_risks, not_feasible; risks is a list; confidence is a number between 0 and 1'
+- Every CAC figure lists its assumptions and source
+- Content names at least one channel with reasoning
+failure_modes:
+- mode: No pricing or revenue data
+  handling: Assess reachability and CAC only, state the gap, and lower confidence.
+- {mode: Benchmarks unavailable, handling: Use stated assumptions with ranges and mark confidence low.}
+- mode: Segment unreachable through affordable channels
+  handling: Verdict not_feasible or feasible_with_risks with the reason.
+required_capabilities: [perform_market_research]

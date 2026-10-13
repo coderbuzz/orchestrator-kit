@@ -1,0 +1,40 @@
+id: coding
+name: Coding
+description: Implement a scoped change in the task workspace repository with tests, and commit it.
+version: 1.0.0
+purpose: Turn approved requirements and architecture into a small, tested, committed code change whose commit and test run the verifier can check.
+inputs:
+- task objective and acceptance criteria
+- requirements_document and architecture_document from dependency results
+- task workspace (current working directory, a git repository or an empty folder)
+outputs: [commit, test_result]
+preconditions:
+- Acceptance criteria are specific enough to test
+- The work happens inside the per-run task workspace; nothing outside it is modified
+procedure:
+- Read the requirements and architecture from dependency results; list the acceptance criteria this task covers and anything ambiguous.
+- 'Inspect the workspace: `git status`; if there is no repository yet (first task), run `git init` and create a minimal project skeleton that matches the architecture.'
+- Find the existing structure, conventions, test runner, linter and build command (README, package/project files); reuse them rather than adding new tools or dependencies.
+- Write or update a test for each acceptance criterion first, run it and confirm it fails for the expected reason.
+- Make the smallest code change that makes those tests pass; no speculative features, no unrelated refactors, no secrets in code or config.
+- Run the full test suite and record the exact command, exit code, passed and failed counts from its output.
+- Run lint, typecheck and build where the project has them; fix what your change broke.
+- Stage only the files you intended to change (`git add <paths>`), check `git diff --cached`, then `git commit -m "<imperative summary>"`.
+- Capture `git rev-parse HEAD` and `git show --name-only --format= HEAD` for the commit evidence.
+- Return a commit artifact {sha, repository, files_changed} and a test_result artifact {command, exit_code, passed, failed}; if tests fail, report status partial or failed with the failing test names, never completed.
+validation:
+- 'commit evidence: sha is the new commit (git_commit check passes in evidence.repository), repository is "." or the repo path relative to the workspace, files_changed lists at least one file'
+- 'test_result evidence: command is the exact command that was run, exit_code equals 0, passed >= 1, failed equals 0'
+- Test counts come from an actual run in this task, not from memory or estimation
+- Every acceptance criterion maps to at least one test
+failure_modes:
+- mode: Requirements or architecture missing or contradictory
+  handling: Return status blocked with blocked_reason naming the missing input; propose a follow-up task to the owner instead of guessing.
+- mode: Tests fail after the change
+  handling: Report the failing tests and output in test_result evidence (failed > 0) and status partial or failed; never hide or delete a failing test to get green.
+- mode: No test runner in the project
+  handling: Add the smallest standard runner for the language, note it in the summary, and test through it.
+- mode: Needs a dependency or external service
+  handling: Prefer the standard library; if a new dependency is unavoidable, pin it and state why in the summary. External services are not called; stub them in tests.
+required_capabilities: [read_repository, write_repository, execute_command, run_tests]
+model_policy: coding

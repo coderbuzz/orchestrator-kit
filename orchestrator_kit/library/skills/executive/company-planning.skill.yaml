@@ -1,0 +1,41 @@
+id: company-planning
+name: Company planning
+description: Decomposes an objective into a bounded, dependency-ordered task plan assigned to agents within the delegation chain.
+version: 1.0.0
+purpose: 'Turn an objective into executable task contracts that the orchestrator can run: each task has one owner agent, one skill, explicit acceptance criteria and task-specific evidence, with independent work run in parallel and dependencies made explicit.'
+inputs:
+- objective, success metrics and constraints (from the directive or task contract)
+- budget for the plan (budget_usd, remaining run budget)
+- company state (products, roadmap, technical_state, budgets)
+- roster of agents this agent may delegate to, with their skills
+outputs: [plan]
+preconditions:
+- The objective is stated and has at least one success metric.
+- A budget is known; if none is given, the plan is not started.
+procedure:
+- Restate the objective and success metrics; list the deliverables that together satisfy them.
+- Break the deliverables into tasks small enough for one agent and one skill each. Keep the plan to 15 tasks or fewer; merge or drop low-value tasks rather than exceeding it.
+- Assign each task to the best-fitting agent among those you may delegate to (or that your delegates may delegate to), and name the skill it should use. Never assign to an agent outside the delegation chain.
+- Give each task a unique kebab-case key, an objective, and acceptance_criteria that a verifier can check.
+- 'Set required_artifacts per kind of work: coding -> commit and test_result; research -> research_report with sources; finance -> financial_analysis; deployment -> deployment; design -> design_document; decisions -> decision_record.'
+- Set depends_on only where a task needs another task's output; leave independent tasks without dependencies so they run in parallel. Check that the dependency graph has no cycles and every depends_on key exists.
+- Allocate budget_usd per task in proportion to expected effort; the sum must not exceed the plan budget. Put any decision gate (e.g. BUILD/VALIDATE_MORE/DEFER/REJECT) as its own task with decision_options.
+- Place the cheapest tasks that can falsify the objective first (research, feasibility, economics before build).
+- Return the tasks in the result's plan (or follow_up_tasks when extending an existing plan) and emit a plan artifact whose content lists the tasks, dependencies and budget, with evidence {steps} = the list of task keys in execution order.
+validation:
+- plan artifact carries evidence.steps as a non-empty list matching the task keys in the result's plan or follow_up_tasks.
+- Each task has key, objective, agent, skill, acceptance_criteria (min 1), required_artifacts and budget_usd.
+- Task count is 15 or fewer; every depends_on key exists; the graph is acyclic.
+- Every agent is reachable through the delegation chain of the planning agent.
+- Sum of budget_usd does not exceed the available budget.
+- Coding tasks require commit and test_result; research tasks require research_report; finance tasks require financial_analysis; deployment tasks require deployment.
+failure_modes:
+- mode: Objective too large for 15 tasks or the budget
+  handling: Plan the first bounded phase that produces a decision point, and state what is deferred.
+- mode: No agent in the chain has the needed skill
+  handling: Leave the task out, record the gap in the summary, and request it as a follow-up for the owning executive.
+- mode: Circular or missing dependencies
+  handling: Re-order or merge tasks until the graph is acyclic before returning.
+- mode: Budget unknown
+  handling: Return status blocked with blocked_reason asking for a budget; do not plan unbounded work.
+required_capabilities: [create_task]

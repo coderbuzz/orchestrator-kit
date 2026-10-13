@@ -1,0 +1,32 @@
+id: release-validation
+name: Release validation
+description: Decide whether a release candidate may be deployed by checking the deployment gates and the rollback procedure.
+version: 1.0.0
+purpose: Stop unsafe releases before deployment by checking the gates in policies/production/deployment-gates.policy.yaml against real evidence.
+inputs:
+- release candidate (commit sha, version) in the task workspace
+- dependency results (test_result, qa_report, code_review, security_review, earlier deployment artifacts)
+- target environment (staging or production)
+outputs: [release_report]
+preconditions: [The release candidate commit exists in the workspace repository]
+procedure:
+- 'Identify the candidate: commit sha, version string and target environment.'
+- 'Gate tests-green: find a test_result for this commit with exit_code 0 and failed 0, or run the suite now and record the result.'
+- 'Gate staging-first (production only): find a successful staging deployment artifact for the same build; absent means fail.'
+- 'Gate production-approval (production only): confirm an approval is recorded at the required level, or mark the gate pending and say a request_approval is needed.'
+- 'Gate rollback-plan: write a concrete rollback procedure (previous version, command or steps, data migration reversal, who triggers it).'
+- 'Review supporting evidence: code_review and security_review verdicts, open critical/high findings, migrations, current error metrics.'
+- 'Record each gate as a check {gate, result: pass|fail|pending, evidence}.'
+- 'Set verdict: go only if every required gate passes; otherwise no_go naming the failing or pending gates.'
+- Return a release_report artifact with evidence {verdict, checks, rollback_procedure}.
+validation:
+- 'release_report evidence: verdict is a string (go or no_go); checks is a list with at least one entry covering staging-first, tests-green, production-approval and rollback-plan as applicable; rollback_procedure is a non-empty string'
+- Each passing gate cites the artifact or command output that proves it
+failure_modes:
+- mode: Required evidence missing
+  handling: Mark the gate fail or pending and return verdict no_go; never assume a gate passed.
+- mode: Tests fail on the candidate
+  handling: Verdict no_go with the failing test names; propose a debugging follow-up.
+- mode: No safe rollback exists (e.g. irreversible migration)
+  handling: Verdict no_go until a backup and restore or forward-fix plan is written and approved.
+required_capabilities: [read_repository, run_tests, read_metrics]

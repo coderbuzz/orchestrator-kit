@@ -1,0 +1,10 @@
+id: deployment-gates
+name: Deployment gates
+version: 1.0.0
+domain: production
+description: Gates that must pass before any deployment.
+rules:
+  - {id: staging-first, statement: "Production deployment requires a successful staging deployment artifact for the same build.", enforcement: deterministic}
+  - {id: tests-green, statement: "Production deployment requires a passing test_result artifact for the commit.", enforcement: deterministic}
+  - {id: production-approval, statement: "Production deployment requires approval at the level configured in approval-levels.", enforcement: deterministic}
+  - {id: rollback-plan, statement: "Every release names a rollback procedure.", enforcement: advisory}

@@ -18,10 +18,9 @@ from referencing import Registry, Resource
 
 from .pack import Pack
 
-# Default pack root: the checkout this package lives in; COMPANYOS_ROOT points the tools at another one. Every function below
-# takes an explicit `root` and only falls back to this.
-# ponytail: the default assumes kit and pack share a checkout (company-os); after extraction (step 6) the pack passes its root.
-ROOT = Path(os.environ.get("COMPANYOS_ROOT") or Path(__file__).resolve().parent.parent)
+# Default pack root when a caller passes none: $ORCHESTRATOR_KIT_PACK, else the current directory. Every function below takes an
+# explicit `root`; a pack's own entry points (e.g. companyos) always pass theirs.
+ROOT = Path(os.environ.get("ORCHESTRATOR_KIT_PACK") or Path.cwd())
 KIT_SCHEMAS = importlib.resources.files(__package__) / "schemas"
 SECTION_RE = re.compile(r"^(company|department)/[a-z_]+$")  # memory scopes: company/<state section> or department/<department>
 SKIP = {".git", ".venv", "tests", "state", "__pycache__", "archive", "plugin", ".claude-plugin", "orchestrator_kit", "examples"}

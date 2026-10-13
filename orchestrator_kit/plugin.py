@@ -12,7 +12,7 @@ import yaml
 from .registry import Registry
 from .validate import ROOT
 
-OUT = ROOT / "plugin"  # default; main() uses <registry root>/plugin
+OUT = ROOT / "plugin"  # default for drift(); main() uses <registry root>/plugin
 dump = lambda o: yaml.safe_dump(o, sort_keys=False, allow_unicode=True)  # noqa: E731
 q = json.dumps  # JSON strings are valid YAML double-quoted scalars (and parse in zh's loose frontmatter reader)
 
@@ -68,7 +68,7 @@ def agent_parts(reg: Registry, aid: str, gen: "Generator") -> dict:
 def manifests(pack) -> tuple[dict, dict, dict]:
     """plugin.json, .mcp.json and hooks.json from the pack manifest (bump pack.yaml plugin.version whenever plugin/ changes)."""
     pj = {"name": pack.name, "version": pack.plugin["version"], "author": {"name": pack.plugin["author"]}, "description": pack.plugin["description"]}
-    mcp = {pack.server: {"command": pack.mcp["command"]}}
+    mcp = {pack.server: {"command": pack.mcp["command"], **({"args": pack.mcp["args"]} if pack.mcp.get("args") else {})}}
     hooks = {"description": pack.hook["description"],
              "hooks": {"PreToolUse": [{"matcher": f"{pack.tool_prefix}{pack.human_prefix}.*|Bash|Edit|Write|MultiEdit|NotebookEdit",
                                        "hooks": [{"type": "command", "command": pack.hook["command"]}]}]}}
@@ -76,7 +76,7 @@ def manifests(pack) -> tuple[dict, dict, dict]:
 
 
 class Generator:
-    """The pack's part of the plugin. Defaults: subagent = agent id, no orchestrator skill, a plain README."""
+    """The pack's part of the plugin. Defaults: subagent = agent id, a generic orchestrator skill, a plain README."""
     orchestrator_lead = ""   # first paragraph of the orchestrator agent's subagent prompt
     orchestrator_desc = ""   # its subagent description (default: role + mission)
     readme = "# plugin/ (generated from the pack's definitions; never edit here)\n"
@@ -86,7 +86,32 @@ class Generator:
 
     def orchestrator_skill(self, reg: Registry, aid: str, subagents: dict) -> dict[str, str]:
         """Files (path -> text) of the skill the orchestrator session runs on; `subagents`: name -> {description, ...}."""
-        return {}
+        from .mcp import core_tools
+        a, p, h = reg.agents[aid], reg.pack, reg.pack.human_id
+        tools = "\n".join(f"- `{t['name']}`: {t['description']}" for t in core_tools(p).values())
+        pol = [f"- {x['id']}/{r['id']} ({r['enforcement']}): {r['statement']}" for ref in a["policies"] for x in [reg.policy(ref)] for r in x["rules"]]
+        body = "\n\n".join([
+            f"# {a['name']}\n\nThe human is the {h}. You are the {a['name']} for this conversation: you run the company's projects with "
+            f"its agents (subagents) and the tools of the MCP server `{p.server}`. The tools refuse what policy forbids. Never work around "
+            f"a refusal, never edit `{p.state_dir}/` files, never take a decision reserved to the {h}.",
+            f"## Projects\nA project is a workspace folder with a `{p.project_file}` (name, goal, daily budget, roster). Call `projects` first; "
+            f"if it is unclear which project the {h} means, ask once with your best guess. The company's agents are a catalog; each project "
+            f"hires its team from it (roster) and tasks go only to agents on the roster. Propose who to hire or release and why; the {h} "
+            f"decides (`{p.human_prefix}staff`). A role the company lacks is added to the company repository first "
+            "(`orchestrator-kit hire <role>`, a reviewed change), never invented in a task.",
+            f"## Doing work\nEach task: `task_add` -> `task_start` -> the subagent it names (scoped `{p.name}:<name>`) does it with the "
+            "returned prompt -> `task_submit` with its JSON. Use `dispatch` when the task needs another harness or a model the subagent "
+            f"cannot take. Approvals: `approvals`; the {h}'s own decisions go through `{p.human_prefix}decide` only after the {h} decided.",
+            "## Tools\n" + tools,
+            "## Your team (subagents)\n" + "\n".join(f"- {k}: {v['description']}" for k, v in sorted(subagents.items())),
+            (reg.root / a["prompt_file"]).read_text().strip(),
+            "## Policies in force\n" + "\n".join(pol),
+            "## Your skills\n\n" + "\n\n".join("\n".join("##" + ln if ln.startswith("#") else ln
+                                                         for ln in skill_body(reg.agent_skill(aid, s["id"])).splitlines()) for s in a["skills"])])
+        desc = (f"Use when the human addresses the {a['name']} or asks about the projects of {p.plugin['author']}: status, results, costs, "
+                "approvals, the team, or wants work done.")
+        text = md([f"name: {aid}", "description: " + q(desc, ensure_ascii=False)], body)
+        return {f"skills/{aid}/SKILL.md": text, f"zh/skills/{aid}/SKILL.md": text}
 
 
 def generate(reg: Registry, gen: Generator | None = None) -> dict[str, str]:

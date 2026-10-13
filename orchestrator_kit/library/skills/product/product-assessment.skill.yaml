@@ -1,0 +1,32 @@
+id: product-assessment
+name: Product assessment
+description: Assesses product fit for an opportunity or product and returns a fit verdict with risks and confidence.
+version: 1.0.0
+purpose: Judge whether the product answers a real, evidenced need for its segment well enough to proceed, so that build and growth decisions rest on a clear product-fit verdict.
+inputs:
+- product brief or MVP hypothesis
+- research reports (pains, segments, competition)
+- feedback and usage data if the product is live
+- company state (product record, strategy)
+outputs: [feasibility_assessment]
+preconditions: [A product or opportunity is defined and has at least one evidence artifact.]
+procedure:
+- Restate the target segment, core pain and value proposition.
+- 'Assess problem fit: is the pain frequent, severe and paid for (cite the research)?'
+- 'Assess solution fit: does the product remove the pain better than alternatives and is the MVP scope sufficient?'
+- 'For live products assess market fit signals: activation, retention, organic referrals, willingness to pay, feedback themes. Missing data is a finding.'
+- Check strategic fit with company strategy and capabilities.
+- List risks (desirability, viability, feasibility, usability, regulatory) with severity.
+- 'Give a verdict: STRONG_FIT, PARTIAL_FIT or NO_FIT, and the conditions that would change it.'
+- Emit a feasibility_assessment artifact with evidence {verdict, risks (list), confidence (0-1)}.
+validation:
+- feasibility_assessment artifact carries evidence.verdict (string), evidence.risks (list) and evidence.confidence (0-1).
+- Verdict is STRONG_FIT, PARTIAL_FIT or NO_FIT and each fit dimension cites an artifact or source.
+- STRONG_FIT is not given when problem evidence or (for live products) retention data is missing.
+failure_modes:
+- mode: Insufficient evidence
+  handling: Give PARTIAL_FIT or NO_FIT with low confidence and name the evidence needed.
+- mode: Conflicting signals (usage up, payment low)
+  handling: Report both, explain which dominates, lower confidence.
+- {mode: Strategy mismatch, handling: Note it as a risk even when product fit is strong.}
+required_capabilities: []

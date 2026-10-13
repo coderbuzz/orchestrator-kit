@@ -1,0 +1,10 @@
+id: research
+name: Web research
+version: 1.1.0
+requirements: {capabilities: [reasoning, web_research, tool_use], task_complexity: medium}
+preferences: {optimize_for: balanced, max_latency_class: batch}
+candidates:
+  - {harness: claude-code, model: sonnet, provider: anthropic}
+  - {harness: claude-code, model: opus, provider: anthropic}
+  - {harness: zcode, model: GLM-5.3, provider: account:zai-individual-coding-plan}   # zh built-in: Z.AI coding plan (flat rate)
+  - {harness: dsh, model: deepseek-flash, provider: deepseek, effort: max}   # dsh 0.1.6; research was verified only at max (F1-F3)

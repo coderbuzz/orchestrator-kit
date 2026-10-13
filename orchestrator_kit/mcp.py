@@ -81,7 +81,7 @@ def core_tools(pack: Pack, descriptions: dict | None = None) -> dict[str, dict]:
 
 
 def workspace() -> Path:
-    return Path(os.environ.get("COMPANYOS_WORKSPACE") or Path.home() / "workspace")
+    return Path(os.environ.get("ORCHESTRATOR_KIT_WORKSPACE") or os.environ.get("COMPANYOS_WORKSPACE") or Path.home() / "workspace")
 
 
 def default_report(c: Runtime) -> str:

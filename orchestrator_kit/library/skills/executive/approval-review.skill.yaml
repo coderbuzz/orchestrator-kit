@@ -1,0 +1,36 @@
+id: approval-review
+name: Approval review
+description: Reviews a pending approval request and grants (PASS) or rejects (FAIL) it with findings, based on evidence, policy level and budget.
+version: 1.0.0
+purpose: 'Act as the approver for a request routed to this agent''s approval level: check that the action is justified, evidenced, within policy and affordable, and reject anything that is not.'
+inputs:
+- approval request (action, capability, parameters, justification, evidence, required level, estimated cost)
+- requesting task and its artifacts
+- applicable policies (approval levels, budget control, spending, deployment gates, security)
+- company state (budgets, risks, products)
+outputs: [approval_review]
+preconditions:
+- The request's required level is at or below this agent's max approval level.
+- The approver is not the requester.
+procedure:
+- 'Read the request: what action, by whom, why, at what cost, at what required level.'
+- 'Confirm authority: the required level does not exceed your max approval level and you are not the requester. If either fails, return FAIL with that finding.'
+- 'Check policy: the action is allowed by the applicable policies and gates (e.g. deployment needs passing tests and security review; spend fits the threshold for this level).'
+- 'Check evidence: every claim in the justification is backed by an artifact with verified evidence (sha, test counts, sources, calculations, URLs). Missing or unverified evidence is a FAIL.'
+- 'Check budget: estimated cost fits the remaining task, run and company budget.'
+- 'Check risk and reversibility: irreversible or customer-facing actions need stronger evidence and a rollback path.'
+- Return verdict PASS (grant) only if all checks pass; otherwise FAIL (reject). Put one finding per check in findings, including what would make a rejected request acceptable.
+- Record the decision (decision.selected_option = GRANT or REJECT with reasoning_summary and confidence) and emit an approval_review artifact with evidence {verdict}.
+validation:
+- verdict is PASS or FAIL and equals evidence.verdict on the approval_review artifact.
+- findings has one entry each for authority, policy, evidence, budget and risk.
+- A PASS is never given when any referenced evidence is missing or unverified, or the action is outside policy.
+- The approver is not the requester and the required level is within the approver's authority.
+failure_modes:
+- {mode: Evidence missing or unverifiable, handling: FAIL with findings naming the missing evidence.}
+- mode: Action outside policy or above authority
+  handling: FAIL and state the level or policy that applies so the request can be re-routed.
+- {mode: Cost estimate missing, handling: FAIL; ask the requester for an estimate.}
+- mode: Request ambiguous
+  handling: FAIL with a finding describing what must be clarified; never grant on assumption.
+required_capabilities: [record_decision]

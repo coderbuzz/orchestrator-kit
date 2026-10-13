@@ -1,0 +1,9 @@
+id: audit-trail
+name: Audit trail
+version: 1.0.0
+domain: governance
+description: Important actions are auditable without storing chain-of-thought.
+rules:
+  - {id: audit-record, statement: "State transitions, policy denials, approvals, decisions, actions and effects are appended to the audit log with actor, action, reason, task, decision, policy, result and evidence.", enforcement: deterministic}
+  - {id: no-chain-of-thought, statement: "Only concise rationale is stored, never raw reasoning transcripts.", enforcement: advisory}
+  - {id: append-only, statement: "Audit and event logs are append-only.", enforcement: deterministic}

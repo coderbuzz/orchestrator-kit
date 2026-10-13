@@ -1,0 +1,10 @@
+id: reasoning
+name: Strong reasoning (executives, architecture, economics)
+version: 1.2.0
+requirements: {capabilities: [reasoning, tool_use], task_complexity: high}
+preferences: {optimize_for: quality, max_latency_class: any}
+candidates:
+  - {harness: claude-code, model: opus, provider: anthropic}
+  - {harness: zcode, model: GLM-5.3, provider: account:zai-individual-coding-plan}   # zh built-in: Z.AI coding plan (flat rate)
+  - {harness: agy, model: gemini-3.1-pro-high, provider: account:google-ai-pro}   # Board-approved 2026-10-12; flat plan, always with --dangerously-skip-permissions
+  - {harness: claude-code, model: sonnet, provider: anthropic}

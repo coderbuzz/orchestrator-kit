@@ -1,0 +1,36 @@
+id: board-reporting
+name: Board reporting
+description: Writes a concise CEO-to-Board report from company state, metrics and financial data, with fixed sections and unknowns stated as unknown.
+version: 1.0.0
+purpose: 'Give the Board an accurate, short picture of the company so it can steer: what is happening, what it costs, what is at risk and which decisions need the Board. Summaries only; never raw task logs.'
+inputs:
+- reporting period
+- company state (strategy, objectives, products, customers, sales_pipeline, risks, incidents, decisions)
+- metrics and KPIs
+- financial data (revenue, costs, cash, budgets)
+- pending approvals at Board level
+outputs: [board_report]
+preconditions: [The reporting period is known., Company state is readable.]
+procedure:
+- Read company state, metrics and financial data for the period; note which sources are missing or unavailable.
+- 'Write the sections in this order: Company Status, Strategic Objectives, Product Status, Revenue, Costs, Cash/Runway, Growth, Sales Pipeline, Customer Health, Major Wins, Major Problems, Risks, Decisions Required, Next Strategic Actions.'
+- Keep each section to a few bullets with numbers and their change versus the previous period where available.
+- Where data is missing, write Unknown and why (e.g. capability unavailable, not instrumented); never estimate silently.
+- Report blocked work and unavailable capabilities as such, never as done.
+- In Decisions Required, list each item the Board must decide or approve with options, recommendation and deadline.
+- Summarize task outcomes at the level of objectives and products; do not paste task logs, transcripts or raw tool output.
+- Exclude secrets and personal data.
+- Emit a board_report artifact with the report in content and evidence {sections} = the list of section names included.
+validation:
+- board_report artifact carries evidence.sections as a non-empty list containing all 14 required section names.
+- Every figure is traceable to company state, metrics or financial data; missing figures are written as Unknown.
+- Decisions Required lists options and a recommendation for each item, or states none.
+- No raw task logs, credentials or personal data appear in content.
+failure_modes:
+- mode: Financial or metrics data unavailable
+  handling: Write Unknown in the affected sections, name the missing source, and add instrumenting it to Next Strategic Actions.
+- mode: Too much detail to stay concise
+  handling: Aggregate by objective and product; move detail into referenced artifacts.
+- mode: Conflicting figures between sources
+  handling: Report the figure from the system of record, note the discrepancy as a problem.
+required_capabilities: [read_metrics, read_financial_data]

@@ -1,0 +1,11 @@
+id: spending
+name: Spending and budgets
+version: 1.1.0
+domain: finance
+description: Budget enforcement for tasks and agents.
+rules:
+  - {id: budget-checked, statement: "A task whose cost reaches its budget is not retried: it fails and the orchestrator decides what next.", enforcement: deterministic}
+  - {id: spend-above-limit-needs-approval, statement: "Spending above the configured limit requires approval at the level set in approval-levels.", enforcement: deterministic}
+parameters:
+  max_cost_usd_per_task: null
+  max_cost_usd_per_day: null

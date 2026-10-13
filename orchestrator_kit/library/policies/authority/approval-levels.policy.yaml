@@ -1,0 +1,18 @@
+id: approval-levels
+name: Approval levels
+version: 1.1.0
+domain: authority
+description: Defines who may approve what. Agents request approval via protocols/approvals; the requester goes WAITING_APPROVAL and the system keeps running other work.
+rules:
+  - {id: autonomy-default, statement: "Human approval is the exception. Work proceeds at the lowest level that fits the action.", enforcement: deterministic}
+  - {id: no-self-escalation, statement: "An agent may not approve above authority.max_approval_level in its definition, and never its own request.", enforcement: deterministic}
+  - {id: non-blocking, statement: "A pending approval blocks only the dependent task, never the whole system.", enforcement: deterministic}
+  - {id: spend-thresholds, statement: "An action's estimated spend maps to a level via parameters.thresholds; the required level is the max of capability, step, decision and spend levels.", enforcement: deterministic}
+parameters:
+  levels:
+    0: {name: autonomous, approver: none}
+    1: {name: department, approver: department head agent}
+    2: {name: cross-department, approver: CEO orchestrator}
+    3: {name: material, approver: CEO orchestrator + Board notified, applies_to: "material financial / production / customer actions"}
+    4: {name: board, approver: Board/Owner}
+  thresholds: null   # spend above level_N_usd needs level N, e.g. {level_1_usd: 5, level_2_usd: 25, level_3_usd: 100, level_4_usd: 500}; set in config/policies

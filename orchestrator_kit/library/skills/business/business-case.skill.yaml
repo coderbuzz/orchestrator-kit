@@ -1,0 +1,32 @@
+id: business-case
+name: Business case
+description: Builds a business case for an opportunity or product with business model, revenue model, costs and payback, from explicit assumptions.
+version: 1.0.0
+purpose: 'Show whether an opportunity is worth funding: how it makes money, what it costs to build and run, and when it pays back, with every number traceable to company data, research or a labeled assumption.'
+inputs:
+- opportunity or product brief
+- research reports (market sizing, pricing, competition)
+- company state (financial_state, budgets, cost data)
+outputs: [business_case]
+preconditions: [A product or opportunity is described and at least one research or pricing input exists.]
+procedure:
+- 'Describe the business model: customer, value proposition, channel, revenue model (subscription, usage, services, licence).'
+- 'List assumptions explicitly (price, conversion, customers per month, churn, CAC, build cost, infra and model cost per customer, support cost), each with its source: company state, a research artifact, or labeled as assumption.'
+- 'Never invent revenue data: use company state or label the figure as an assumption.'
+- 'Compute in USD unless stated: build cost, monthly run cost, revenue ramp over 12-24 months, gross margin, contribution margin, cumulative cash, payback month, and break-even customers.'
+- Run base, downside and upside scenarios by varying the 2-3 most uncertain assumptions.
+- State the conditions under which the case fails (e.g. CAC above X, churn above Y).
+- Emit a business_case artifact with content (model, assumptions table, scenarios, payback) and evidence {assumptions (list), calculation (object with inputs, formulas and results per scenario), source_data (list of artifact ids, URLs or state sections used)}.
+validation:
+- business_case artifact carries evidence.assumptions (non-empty list), evidence.calculation (object) and evidence.source_data (non-empty list).
+- calculation reproduces from the stated inputs and includes payback and contribution margin per scenario.
+- Every revenue figure traces to company state, a source, or an assumption labeled as such.
+- Currency is stated (USD by default).
+failure_modes:
+- mode: Key inputs missing
+  handling: Use labeled assumptions with ranges, widen scenarios, and report which data would most change the result.
+- mode: Case negative in base scenario
+  handling: Report it plainly with the break-even conditions; do not tune assumptions to make it positive.
+- mode: Inconsistent inputs across research artifacts
+  handling: Pick one with the stronger source, note the discrepancy in assumptions.
+required_capabilities: []

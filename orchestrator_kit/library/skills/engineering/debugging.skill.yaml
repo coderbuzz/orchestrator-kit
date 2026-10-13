@@ -1,0 +1,38 @@
+id: debugging
+name: Debugging
+description: Reproduce a defect, fix its root cause with a regression test, and commit the fix.
+version: 1.0.0
+purpose: Remove a defect at its root cause with a failing-then-passing regression test, so the fix is proven and cannot silently return.
+inputs:
+- defect report (symptom, expected vs actual, environment)
+- dependency results (requirements, architecture, failing test_result or incident_report)
+- task workspace git repository
+outputs: [commit, test_result]
+preconditions:
+- The task workspace contains the repository with the defect
+- The symptom is described well enough to attempt a reproduction
+procedure:
+- Restate the symptom, expected behaviour and actual behaviour; note the commit or version where it was seen.
+- 'Reproduce it locally: run the failing command or test, or write a minimal failing test; record the exact command and output.'
+- Trace the causal chain from the symptom to the code; read every caller of the function you intend to change.
+- Name the root cause in one sentence; if you cannot, keep investigating or report partial instead of patching the symptom.
+- Keep the reproduction as a regression test and confirm it fails before the fix.
+- Apply the smallest fix at the shared root, not per caller; no unrelated changes.
+- Run the regression test and the full suite, plus lint, typecheck and build where the project has them.
+- '`git add` the fix and test, `git commit -m "fix: <root cause>"`, and capture `git rev-parse HEAD` and the changed file list.'
+- Return commit {sha, repository, files_changed} and test_result {command, exit_code, passed, failed}, plus the root cause and residual risk in the summary.
+validation:
+- 'commit evidence: sha passes the git_commit check in evidence.repository; files_changed includes the regression test'
+- 'test_result evidence: command is the exact command run, exit_code equals 0, passed >= 1, failed equals 0'
+- Summary states the root cause and that the regression test failed before the fix
+failure_modes:
+- mode: Cannot reproduce
+  handling: Report status partial with the attempted steps and environment differences; request the missing details as a follow-up task. Do not ship a speculative fix.
+- mode: Fix breaks other tests
+  handling: Report them in test_result (failed > 0) and status failed or partial; do not disable tests.
+- mode: Root cause is in a dependency or infrastructure
+  handling: Add a guarded workaround with a test if safe, document the upstream cause, and propose a follow-up task to the right owner.
+- mode: Defect is a production incident
+  handling: Recommend rollback first (incident-response) and keep the fix on the normal release path.
+required_capabilities: [read_repository, write_repository, execute_command, run_tests]
+model_policy: coding

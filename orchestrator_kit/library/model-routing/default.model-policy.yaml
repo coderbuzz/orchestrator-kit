@@ -1,0 +1,9 @@
+id: default
+name: Default (balanced)
+version: 2.1.0
+requirements: {capabilities: [reasoning, tool_use], task_complexity: medium}
+preferences: {optimize_for: balanced, max_latency_class: any}
+candidates:
+  - {harness: claude-code, model: sonnet, provider: anthropic}
+  - {harness: zcode, model: GLM-5.3, provider: account:zai-individual-coding-plan}   # zh built-in: Z.AI coding plan (flat rate)
+  - {harness: claude-code, model: haiku, provider: anthropic}

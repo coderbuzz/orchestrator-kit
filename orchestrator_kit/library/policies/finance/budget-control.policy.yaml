@@ -1,0 +1,11 @@
+id: budget-control
+name: Budget control
+version: 1.1.0
+domain: finance
+description: No unlimited autonomous spending. Every run and task has a budget; overruns go CFO -> CEO.
+rules:
+  - {id: run-budget-required, statement: "Every task has a budget: the one given, or spending.max_cost_usd_per_task.", enforcement: deterministic}
+  - {id: track-cost, statement: "Every harness call records actual or estimated cost, model and harness in the usage ledger.", enforcement: deterministic}
+  - {id: overrun-pauses, statement: "When an objective spends past its budget, the CEO stops starting work for it and decides (reduce scope, ask the Board for more, or stop) with the CFOs analysis.", enforcement: advisory}
+  - {id: daily-cap, statement: "When the company's daily spend reaches spending.max_cost_usd_per_day no new harness call starts until the next UTC day.", enforcement: deterministic}
+  - {id: cfo-on-costly, statement: "Initiatives with meaningful cost include a CFO economics step before build.", enforcement: advisory}

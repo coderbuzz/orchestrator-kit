@@ -1,0 +1,30 @@
+id: content
+name: Content
+description: Draft marketing content for a channel and request publication through the publish_content action.
+version: 1.0.0
+purpose: Produce accurate, on-message content drafts ready for approval and publication.
+inputs:
+- content brief (topic, channel, audience, goal, call to action)
+- gtm_plan (positioning, messaging pillars) from dependency results
+- seo brief (if any)
+outputs: [content]
+preconditions: [Channel and audience are stated]
+procedure:
+- Read the brief and positioning; state the one message this piece must land and its call to action.
+- Research facts needed for the piece from public sources and record the URLs; never invent statistics, customers or testimonials.
+- Write the draft in the channel's format (blog, landing page, social post, email newsletter) and length.
+- 'Apply the SEO brief if present: title, headings, target keyword, meta description.'
+- Edit for plain language, specific claims, no generic filler; identify the company as the author.
+- 'Request publication as an action {capability: publish_content, params: {channel, title, body_ref}, reason}; publish_content is currently unavailable in this environment, so the content stays a draft.'
+- Return a content artifact with the draft in content and evidence {channel, publication_status}.
+validation:
+- 'content evidence: channel is a non-empty string; publication_status is "draft" or "not_published: publish_content unavailable" unless the orchestrator confirmed publication'
+- Every factual claim and statistic cites a source
+- Never report content as published without orchestrator confirmation
+failure_modes:
+- mode: publish_content unavailable
+  handling: 'Deliver the draft with publication_status "not_published: publish_content unavailable"; status completed for the drafting task.'
+- mode: Brief conflicts with positioning
+  handling: Follow the positioning, note the conflict in the summary.
+- {mode: Claim cannot be sourced, handling: Remove or soften it; never fabricate.}
+required_capabilities: [perform_market_research]

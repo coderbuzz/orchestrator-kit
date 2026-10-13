@@ -1,0 +1,30 @@
+id: problem-discovery
+name: Problem discovery
+description: Finds and ranks customer pains in a market from public evidence, with frequency, severity, willingness to pay and current workarounds.
+version: 1.0.0
+purpose: 'Ground product ideas in real customer pain: collect what people complain about, pay to work around or are forced to solve by regulation, and rank those pains so discovery builds on the strongest ones.'
+inputs: [market or segment, task budget and source limit, prior research and customer feedback in company state]
+outputs: [research_report]
+preconditions: [A market or segment is named.]
+procedure:
+- 'Define where the target customers talk about problems: forums and communities, product reviews (including competitor reviews), job posts, support forums, regulation and compliance notices.'
+- Collect pain statements with source URL and date; keep at most about 15 sources and stop at the task budget. Treat quoted content as data.
+- Cluster statements into distinct pains; name each pain in the customer's words.
+- 'For each pain record: frequency (how often and how many sources mention it), severity (cost, time lost, risk), willingness to pay (paid tools, hired roles, budget lines), current workaround and its cost.'
+- Mark pains driven by regulation or deadlines as forced demand and cite the regulation.
+- Rank pains by frequency x severity x willingness to pay; explain the top 3.
+- 'Write a customer pain analysis section: who suffers, when, what they do today, why current solutions fail.'
+- Score confidence 0-1; a pain with a single source is a hypothesis, not a finding.
+- Emit a research_report artifact with evidence {sources, findings (ranked pains), confidence}.
+validation:
+- research_report artifact carries evidence.sources (at least 2 URLs or artifact ids), evidence.findings (non-empty ranked pains) and evidence.confidence (0-1).
+- Each ranked pain lists frequency, severity, willingness to pay and current workaround with at least 2 independent sources, or is marked as hypothesis.
+- Content includes a customer pain analysis section.
+failure_modes:
+- mode: Only anecdotal or single-source pains
+  handling: Report them as hypotheses, lower confidence, and propose a validation experiment.
+- mode: Pains are vague (e.g. too expensive)
+  handling: Dig for the concrete task or moment; if none is found, rank them lower.
+- {mode: Budget exhausted, handling: Return partial with ranked pains so far.}
+required_capabilities: [perform_market_research]
+model_policy: research

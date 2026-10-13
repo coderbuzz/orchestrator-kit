@@ -1,0 +1,9 @@
+id: external-communication
+name: External communication
+version: 1.0.0
+domain: communication
+description: Rules for anything sent to customers, prospects, or the public.
+rules:
+  - {id: identify-as-ai, statement: "External messages must not claim to be written by a human.", enforcement: advisory}
+  - {id: no-unverified-claims, statement: "Marketing and sales claims must trace to evidence artifacts.", enforcement: advisory}
+  - {id: customer-actions-gated, statement: "send_email and publish_content go through the approval level in the capability catalog.", enforcement: deterministic}

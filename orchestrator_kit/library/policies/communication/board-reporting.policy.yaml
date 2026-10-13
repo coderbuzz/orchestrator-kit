@@ -1,0 +1,10 @@
+id: board-reporting
+name: Board reporting
+version: 1.0.0
+domain: communication
+description: How the CEO communicates with the Board.
+rules:
+  - {id: ceo-is-interface, statement: "The Board talks to the CEO. Other agents reach the Board only through the CEO or approval requests.", enforcement: advisory}
+  - {id: summarize, statement: "Board reports follow protocols/reports/board-report.schema.json and never include raw task logs.", enforcement: deterministic}
+  - {id: level-3-notify, statement: "Level-3 approvals and material incidents are written to the Board inbox.", enforcement: deterministic}
+  - {id: honest-status, statement: "Unavailable capabilities and blocked work are reported as such, never as done.", enforcement: advisory}

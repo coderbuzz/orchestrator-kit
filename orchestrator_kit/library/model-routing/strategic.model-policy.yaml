@@ -1,0 +1,7 @@
+id: strategic
+name: Strategic reasoning (CEO, Board-facing decisions)
+version: 1.2.0
+requirements: {capabilities: [reasoning, long_context, tool_use], task_complexity: high}
+preferences: {optimize_for: quality, max_latency_class: any}
+candidates:   # Opus only: a decision is blocked (harness unavailable) rather than taken by a weaker model
+  - {harness: claude-code, model: opus, provider: anthropic}

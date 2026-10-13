@@ -1,0 +1,41 @@
+id: portfolio-review
+name: Portfolio review
+description: Reviews a live product on usage, retention, economics, cost and risk and decides CONTINUE, ITERATE, REDUCE_SCOPE, PAUSE, PIVOT, STOP or SCALE.
+version: 1.0.0
+purpose: 'Keep the product portfolio honest after launch: invest where evidence shows traction and good economics, cut or change course where it does not, and treat missing data as a finding rather than a pass.'
+inputs:
+- product id and its lifecycle state
+- product metrics (usage, activation, retention, churn)
+- financial data (revenue, CAC, unit economics, engineering and infrastructure cost, budget)
+- open risks and incidents (including security)
+- prior decisions and targets for the product
+outputs: [decision_record]
+preconditions:
+- The product exists in company state and is in a live state (PRODUCTION, GO_TO_MARKET, GROWTH, OPTIMIZATION) or PAUSED.
+procedure:
+- Read the product's targets and prior decisions so the review measures against stated goals.
+- 'Pull metrics for the review window: usage, activation, retention, churn, revenue, CAC, contribution margin, engineering cost, infrastructure cost, budget used versus allocated.'
+- Pull open security risks and incidents for the product.
+- 'Build a scorecard with one row per signal: value, target, trend, source. Any signal with no data is recorded as a finding (data missing) and scored as unfavorable, never as on track.'
+- 'Assess economics: is contribution margin positive, is CAC payback within the target, is cost per active customer falling or rising?'
+- 'Choose one option: SCALE (strong retention and positive economics, growth limited by investment), CONTINUE (on target), ITERATE (usage exists but a specific metric lags), REDUCE_SCOPE (cost exceeds value of some parts), PAUSE (unclear evidence, stop spending until resolved), PIVOT (real pain found but current solution or segment fails), STOP (no traction or negative economics after fair attempts, or unacceptable security risk).'
+- Fill decision.* (selected_option, options_considered, reasoning_summary, confidence, impact, risk, reversibility, cost_estimate_usd) and parameters (target = product id, plus next review date, budget change or scope changes).
+- 'Leaving a live state (PAUSE, STOP, or deprecation) is material: add a request_approval action.'
+- Emit a decision_record artifact with the scorecard and missing-data findings in content and evidence {selected_option}.
+validation:
+- decision.selected_option is one of CONTINUE, ITERATE, REDUCE_SCOPE, PAUSE, PIVOT, STOP, SCALE.
+- decision.parameters.target is a product id present in company state.
+- The scorecard covers usage, retention, CAC, unit economics, engineering cost, security risk and budget, each with a source or a missing-data finding.
+- SCALE or CONTINUE is not selected when retention or unit economics data is missing.
+- decision_record artifact carries evidence.selected_option equal to decision.selected_option.
+failure_modes:
+- mode: Metrics unavailable
+  handling: Record each gap as a finding, lower confidence, and prefer PAUSE or ITERATE with a task to instrument the product.
+- mode: Review window too short for retention
+  handling: Say so, use leading indicators, and set a next review date instead of a terminal decision.
+- mode: Security risk unresolved
+  handling: Weigh it above growth signals; PAUSE or REDUCE_SCOPE until the risk is mitigated.
+- mode: Decision requires approval
+  handling: Request approval; do not change lifecycle state directly.
+required_capabilities: [read_metrics, read_financial_data, record_decision]
+model_policy: strategic

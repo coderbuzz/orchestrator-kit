@@ -1,0 +1,30 @@
+id: proposal
+name: Proposal
+description: Prepare a customer proposal with scope, price and terms within CFO pricing guidance.
+version: 1.0.0
+purpose: Turn a qualified opportunity into a clear offer the customer can accept, without unapproved commitments.
+inputs:
+- qualified lead and customer needs (read_customer_data)
+- pricing guidance and margins from company state (CFO)
+- delivery capacity and product scope from company state
+outputs: [proposal]
+preconditions: [The lead is qualified and its needs are documented, Pricing guidance exists in company state]
+procedure:
+- Read the customer record and restate their problem and desired outcome.
+- Define the scope as a list of deliverables with acceptance criteria, and what is explicitly out of scope.
+- Price it using the CFO pricing guidance (plan, rate or formula); show the calculation; any discount outside guidance needs approval.
+- Add timeline, assumptions, customer responsibilities and payment terms from standard terms.
+- Mark every legal commitment (SLA, liability, IP, data processing, penalties) as subject to approval; a signed contract needs sign_contract approval, which this skill never does.
+- If the price is outside guidance or terms are non-standard, add a request_approval follow-up instead of committing.
+- Return a proposal artifact with evidence {customer, scope, price}.
+validation:
+- 'proposal evidence: customer is the customer or lead name; scope is a list with at least one deliverable; price is an object (e.g. {amount, currency, basis, calculation})'
+- Price is within CFO guidance or the proposal is flagged as needing approval
+- Proposal states it is not binding until approved and signed
+failure_modes:
+- mode: No pricing guidance
+  handling: Return status blocked asking for pricing-analysis; do not invent prices.
+- mode: Customer asks for non-standard legal terms
+  handling: List them, flag for compliance-review and approval, and keep them out of the committed scope.
+- {mode: Scope exceeds delivery capacity, handling: Propose a phased scope and say so in the summary.}
+required_capabilities: [read_customer_data]

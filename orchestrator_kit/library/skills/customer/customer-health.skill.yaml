@@ -1,0 +1,29 @@
+id: customer-health
+name: Customer health
+description: Score customer health from usage, tickets and sentiment and flag churn signals.
+version: 1.0.0
+purpose: Find at-risk customers early enough to act, and expansion candidates, from recorded evidence.
+inputs:
+- customer records, tickets and feedback (read_customer_data)
+- usage and revenue metrics (read_metrics)
+- review period
+outputs: [customer_health_report]
+preconditions: [Customer records exist in company state]
+procedure:
+- List the customers in scope and the review period.
+- 'For each customer collect signals: usage trend, open and recent tickets by severity, sentiment from feedback, payment status, contract renewal date.'
+- Score health 0-100 with a stated formula (e.g. usage 40, support 30, sentiment 20, payment 10); mark missing inputs.
+- 'Flag churn signals: falling usage, repeated high-severity tickets, negative sentiment, champion left, renewal within 60 days with low score.'
+- 'Flag expansion signals: high usage, requests for more seats or features.'
+- Recommend one action per at-risk customer (check-in, fix, training) with an owner.
+- Propose state_updates to customers only if this agent owns that section.
+- Return a customer_health_report artifact with evidence {customers_assessed, signals}.
+validation:
+- 'customer_health_report evidence: customers_assessed is an integer >= 0 equal to the customers scored; signals is a list of {customer, signal, evidence}'
+- The scoring formula is stated and missing inputs are marked
+failure_modes:
+- {mode: No usage data, handling: 'Score from tickets and sentiment only, say so, and lower confidence.'}
+- {mode: No customers yet, handling: Return customers_assessed 0 with an empty signals list.}
+- mode: Conflicting signals
+  handling: Report both and recommend a check-in rather than a confident label.
+required_capabilities: [read_customer_data, read_metrics]

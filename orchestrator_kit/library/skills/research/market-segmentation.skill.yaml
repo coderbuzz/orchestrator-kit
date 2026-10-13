@@ -1,0 +1,29 @@
+id: market-segmentation
+name: Market segmentation
+description: Splits a market into distinct customer segments and recommends which to target first, with sourced evidence per segment.
+version: 1.0.0
+purpose: 'Find the segment where a product can win first: who the buyers are, how they differ in need, size, ability to pay and reachability, and which segment offers the best first beachhead.'
+inputs: [market definition and segment hint, prior research reports for the market, task budget]
+outputs: [research_report]
+preconditions: ['The market is defined well enough to search (industry, geography or buyer type).']
+procedure:
+- 'Define segmentation dimensions that change buying behavior: company size, industry, geography, role of buyer, use case, maturity.'
+- Draft 3-6 candidate segments as combinations of those dimensions; drop overlapping ones.
+- 'For each segment gather sourced evidence: size (count of customers), need intensity, current solutions, willingness and ability to pay, decision maker, reachability (channels).'
+- Use at most about 15 sources in total and stop at the task budget; cite at least 2 independent dated sources per key claim.
+- Score each segment on size, pain intensity, ability to pay, competition, reachability and fit with company capabilities (1-5 each), stating the reason for each score.
+- Rank segments and recommend a beachhead segment with a one-paragraph rationale and the main risk.
+- Score overall confidence 0-1 from evidence coverage and agreement.
+- Emit a research_report artifact with the segment table and recommendation in content and evidence {sources, findings, confidence}.
+validation:
+- research_report artifact carries evidence.sources (at least 2 URLs or artifact ids), evidence.findings (non-empty) and evidence.confidence (0-1).
+- Each segment has size, need, ability to pay and reachability with sources or labeled assumptions.
+- A ranked list and a single recommended beachhead are present.
+failure_modes:
+- mode: Segments indistinguishable
+  handling: Change dimensions (use case or buyer role) and redo; if still flat, report that segmentation does not drive differences.
+- mode: No size data for a segment
+  handling: Estimate bottom-up with labeled assumptions and lower confidence.
+- {mode: Budget exhausted, handling: Return partial with segments assessed so far and what remains.}
+required_capabilities: [perform_market_research]
+model_policy: research

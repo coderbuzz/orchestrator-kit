@@ -1,0 +1,31 @@
+id: market-discovery
+name: Market discovery
+description: Bounded discovery flow from a market question to a BUILD, VALIDATE_MORE, DEFER or REJECT decision, run as a task graph across market-research, cpo, cto, cfo and the CEO.
+version: 1.1.0
+purpose: Find out whether an opportunity is worth building before the company spends on building it, with cited evidence, bounded cost and one recorded decision at the end.
+inputs:
+- Board objective (market, segment hint, or an idea to evaluate)
+- budget for the discovery (default 25 USD) and company state
+outputs: [decision_record, plan]
+preconditions: ['The objective names a market, a segment or an idea.']
+procedure:
+- 'Create the graph with `task_add` (orchestration skill), budget split roughly research 40%, analysis 40%, decision 20%:'
+- '1. research: market-research, skill market-research - map and size the market, demand signals (>=2 independent dated sources per key claim, TAM/SAM/SOM with method, confidence).'
+- '2. In parallel after research: problems (market-research, problem-discovery), segments (market-research, market-segmentation), competitors (market-research, competitive-analysis).'
+- '3. opportunities: cpo, opportunity-scoring, after all of step 2 - ranked 1-5 opportunities with scores and evidence.'
+- '4. In parallel after opportunities: technical (cto, technical-feasibility - MVP effort and risk) and economics (cfo, business-case - unit economics, cost, payback).'
+- '5. product: cpo, product-assessment, after step 4 - product-market fit verdict and the MVP that would test it.'
+- '6. decision: ceo, executive-decision, `options: [BUILD, VALIDATE_MORE, DEFER, REJECT]`, after product. BUILD only with confidence >= 0.6, positive unit economics and a feasible MVP; VALIDATE_MORE only for a named evidence gap that fits the remaining budget.'
+- 'On BUILD: `product_add`, then `product_stage` to VALIDATION and to APPROVED with the decision as the reason; notify the Board (level 3). On VALIDATE_MORE: once only - add new problems/segments/competitors tasks aimed at the gap, then repeat steps 3-6; a second VALIDATE_MORE becomes DEFER. On DEFER or REJECT: report to the Board with the ranked opportunities.'
+validation:
+- Every claim in the decision traces to an accepted research_report source.
+- The business case states its assumptions; the decision record lists the options considered, confidence and reversibility.
+- Total spend of the flow is within its budget; at most one VALIDATE_MORE iteration.
+failure_modes:
+- mode: Research cannot find enough sources
+  handling: Lower confidence honestly; the decision is DEFER or VALIDATE_MORE, never BUILD.
+- mode: Budget exhausted before the decision
+  handling: Skip remaining analysis; take the decision on the evidence so far and say what is missing.
+- mode: An analysis task fails twice
+  handling: Decide without it if the decision does not hinge on it; otherwise DEFER with the gap named.
+required_capabilities: [create_task, record_decision]

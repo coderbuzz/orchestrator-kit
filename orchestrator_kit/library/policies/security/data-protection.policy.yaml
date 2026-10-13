@@ -1,0 +1,10 @@
+id: data-protection
+name: Data protection
+version: 1.1.0
+domain: security
+description: Protect secrets, customer data and financial systems.
+rules:
+  - {id: redact-secrets, statement: "Agent output, prompts written to logs, artifacts and state are scanned and secret-like strings are redacted before persistence.", enforcement: deterministic}
+  - {id: minimum-customer-data, statement: "Agents read customer data only through read_customer_data and include only what the task needs in artifacts.", enforcement: advisory}
+  - {id: no-secrets-in-reports, statement: "Board reports and memory never include credentials or raw customer identifiers beyond what is needed.", enforcement: advisory}
+  - {id: isolated-workspaces, statement: "Worker harness tasks run in a per-task workspace under state/workspaces; claude workers also run with --safe-mode (zh has no equivalent yet).", enforcement: deterministic}

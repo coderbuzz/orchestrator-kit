@@ -1,0 +1,31 @@
+id: pricing-analysis
+name: Pricing analysis
+description: Recommends a pricing model and price points from competitor pricing, customer value and cost to serve.
+version: 1.0.0
+purpose: Set prices that customers will pay and that cover the cost to serve with margin, using market evidence and company cost data rather than guesses.
+inputs:
+- product or offer description and target segment
+- competitive analysis (if available)
+- cost data (infrastructure, model usage, support) and financial data
+- task budget
+outputs: [financial_analysis]
+preconditions: [The offer and target segment are defined.]
+procedure:
+- Collect competitor and alternative prices from dated sources (reuse an existing competitive analysis when available).
+- 'Estimate customer value: time or money saved, revenue gained, cost of the current workaround, with sources or labeled assumptions.'
+- 'Compute cost to serve per customer per month: infrastructure, model/API usage, support, payment fees; take actual figures from financial data where they exist, otherwise label as assumption.'
+- Choose a pricing model (per seat, usage, tiered, flat, services) that matches how value scales; give the reason.
+- Propose price points or tiers; compute gross margin per tier and the price floor (cost to serve / (1 - target margin)).
+- Check the price against competitor range and value; flag if above value or below floor.
+- Emit a financial_analysis artifact with evidence {assumptions (list), calculation (object with cost to serve, floor, margins per tier), source_data (list of URLs, artifact ids or data sources)}; amounts in USD unless stated.
+validation:
+- financial_analysis artifact carries evidence.assumptions (non-empty), evidence.calculation (object) and evidence.source_data (non-empty).
+- calculation shows cost to serve, price floor and gross margin per tier and reproduces from inputs.
+- Competitor prices cite dated sources; unknown prices are marked unknown.
+failure_modes:
+- mode: No competitor price data
+  handling: Price from value and cost only, label it, and lower confidence.
+- {mode: Cost to serve unknown, handling: Use a labeled assumption range and show margin sensitivity.}
+- mode: Proposed price below floor
+  handling: Report that the offer is not viable at market prices unless costs fall; state the needed cost reduction.
+required_capabilities: [perform_market_research, read_financial_data]

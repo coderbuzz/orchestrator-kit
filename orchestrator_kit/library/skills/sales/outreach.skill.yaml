@@ -1,0 +1,29 @@
+id: outreach
+name: Outreach
+description: Write personalised, honest outreach drafts to a lead and request sending through the send_email action.
+version: 1.0.0
+purpose: Start sales conversations with relevant, truthful messages that identify the company clearly.
+inputs:
+- lead record and qualification notes (read_customer_data)
+- positioning and messaging pillars
+- outreach goal (meeting, demo, reply)
+outputs: [content]
+preconditions: [The lead exists in the pipeline with a public business contact channel]
+procedure:
+- Read the lead record and note one specific, publicly verifiable reason this company may need the product.
+- 'Write a short first message: who the company is, why this company, one concrete value point, one clear call to action.'
+- Write 1-2 follow-up drafts with new value each, spaced days apart.
+- 'Check honesty: no false claims, no invented customers or results, no fake urgency, no pretending to be a human if policy requires disclosure; include a way to opt out.'
+- 'Request sending through an action {capability: send_email, params: {lead_id, subject, body}, reason}; send_email is currently unavailable in this environment, so the messages remain drafts.'
+- Return a content artifact with the drafts in content and evidence {channel, publication_status}.
+validation:
+- 'content evidence: channel is a non-empty string (e.g. "email"); publication_status is "draft" or "not_published: send_email unavailable" unless the orchestrator confirmed sending'
+- Every draft identifies the company as the sender and contains no unverifiable claims
+- Never report a message as sent without orchestrator confirmation
+failure_modes:
+- mode: send_email unavailable
+  handling: 'Deliver drafts with publication_status "not_published: send_email unavailable".'
+- mode: No contact channel or personalisation basis
+  handling: Write a template draft, mark it generic, and propose more research.
+- {mode: Lead opted out or disqualified, handling: Do not draft; report status blocked with the reason.}
+required_capabilities: [read_customer_data]

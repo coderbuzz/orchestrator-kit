@@ -1,0 +1,29 @@
+id: growth-experiment
+name: Growth experiment
+description: Design a growth experiment with hypothesis, metric, success threshold, duration and stop rule.
+version: 1.0.0
+purpose: Test growth ideas cheaply and decide from data, not opinion.
+inputs: [growth goal or idea, current metrics (read_metrics), budget and time limit from the task contract]
+outputs: [plan]
+preconditions: [The metric the experiment should move is measurable or can be instrumented]
+procedure:
+- Read current metrics and state the baseline value and its period for the target metric.
+- 'Write the hypothesis: If we <change> for <segment>, then <metric> will <direction> by <amount>, because <reason>.'
+- Choose the primary metric and 1-2 guardrail metrics (e.g. churn, support load, cost).
+- Set the success threshold and the minimum sample or duration needed to detect it; state the method (A/B, before/after, holdout).
+- 'Set the stop rule: end early if a guardrail degrades beyond a stated limit or spend reaches budget.'
+- 'List the steps to run it: build variant, instrument, launch, monitor, analyse, decide.'
+- 'Define the decision in advance: ship, iterate or kill for each possible outcome.'
+- Return a plan artifact with evidence {steps} and the experiment card in content.
+validation:
+- 'plan evidence: steps is a list with at least one step'
+- Content contains hypothesis, primary metric with baseline, success threshold, duration or sample size, and stop rule
+- Cost stays within the task budget
+failure_modes:
+- mode: No baseline data
+  handling: Add an instrumentation step first and mark the threshold provisional.
+- mode: Sample too small to detect the effect
+  handling: Say so, lengthen duration or choose a larger effect, or recommend not running it.
+- mode: Experiment needs an unavailable capability (e.g. publish_content)
+  handling: Include it as an action in the steps and note it is currently unavailable.
+required_capabilities: [read_metrics]

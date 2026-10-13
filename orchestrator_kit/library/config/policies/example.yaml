@@ -1,0 +1,20 @@
+# Copy to local.yaml (git-ignored) to change. The runtime reads local.yaml first, then example.yaml.
+enabled:
+- approval-levels
+- decision-rights
+- security-baseline
+- data-protection
+- spending
+- budget-control
+- deployment-gates
+- incident-management
+- external-communication
+- board-reporting
+- evidence-and-decisions
+- autonomy-limits
+- audit-trail
+parameters:
+  spending: {max_cost_usd_per_task: 5, max_cost_usd_per_day: 50}
+  approval-levels:
+    thresholds: {level_1_usd: 5, level_2_usd: 25, level_3_usd: 100, level_4_usd: 500}
+  autonomy-limits: {max_task_attempts: 2, max_reassignments: 1}

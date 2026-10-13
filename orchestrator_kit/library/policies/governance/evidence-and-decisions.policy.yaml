@@ -1,0 +1,9 @@
+id: evidence-and-decisions
+name: Evidence and decisions
+version: 1.1.0
+domain: governance
+description: How work is proven and decisions are recorded.
+rules:
+  - {id: evidence-over-claims, statement: "A task cannot be COMPLETED without evidence artifacts.", enforcement: deterministic}
+  - {id: decisions-recorded, statement: "Non-trivial decisions are recorded as decision objects with a concise rationale; chain-of-thought is not stored.", enforcement: advisory}
+  - {id: versioned-changes, statement: "Changes to agents, skills, policies, and workflows bump their own version.", enforcement: advisory}

@@ -1,0 +1,30 @@
+id: qualification
+name: Qualification
+description: Qualify a lead with a BANT/MEDDIC-lite checklist and update its pipeline stage.
+version: 1.0.0
+purpose: Spend sales effort only on leads that can and will buy, with a recorded reason for every stage change.
+inputs:
+- lead records from the internal pipeline (read_customer_data)
+- notes from prior contact or research
+- product and pricing guidance
+outputs: [sales_lead]
+preconditions: [The lead exists in the internal pipeline with a lead id]
+procedure:
+- Read the lead record, source and any prior interaction notes.
+- 'Assess BANT: Budget (can they afford the expected price), Authority (decision maker identified by role), Need (pain the product solves), Timeline (when they would buy).'
+- 'Add MEDDIC-lite: Metrics (value they would measure), Economic buyer (role), Pain (specific), Champion (role, if any).'
+- Mark each criterion known, unknown or negative, with the evidence for it; unknown is not positive.
+- 'Decide the stage: qualified (most criteria positive, none negative), nurture (need exists, timing or budget unknown), or disqualified (with reason).'
+- 'Update the stage through an action {capability: create_sales_lead, params: {lead_id, stage, qualification_notes}, reason}.'
+- List the next step and the questions to resolve unknowns.
+- Return a sales_lead artifact with evidence {lead_id, stage, source}.
+validation:
+- 'sales_lead evidence: lead_id matches the existing lead; stage is the new stage (qualified, nurture or disqualified); source names where the qualification evidence came from'
+- Each BANT/MEDDIC criterion is marked with evidence or as unknown
+failure_modes:
+- {mode: Lead not found in pipeline, handling: Return status blocked naming the lead id.}
+- mode: Mostly unknown criteria
+  handling: Stage nurture with the discovery questions; do not mark qualified on assumptions.
+- mode: Stage update action fails
+  handling: Report status partial with the intended stage and reasoning in content.
+required_capabilities: [read_customer_data, create_sales_lead]

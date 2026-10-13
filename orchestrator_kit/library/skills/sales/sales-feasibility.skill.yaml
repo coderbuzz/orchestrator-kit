@@ -1,0 +1,30 @@
+id: sales-feasibility
+name: Sales feasibility
+description: Judge whether the company can sell a product, from ICP reachability, sales cycle, deal size and channel.
+version: 1.0.0
+purpose: Tell decision makers whether a product can be sold at a viable cost and speed before it is built or launched.
+inputs:
+- product description and target segment
+- research_report artifacts from dependency results
+- pricing assumptions (if any)
+outputs: [feasibility_assessment]
+preconditions: [Product and target customer are described]
+procedure:
+- Define the ICP and the buying unit (decision maker, user, budget owner).
+- Research public sources on how such customers buy (procurement, typical vendors, budget cycles) and cite them.
+- 'Assess ICP reachability: how many such companies exist in the target market and how they can be contacted.'
+- Estimate sales cycle length and annual contract value (ACV) ranges with assumptions and sources.
+- Choose the sales motion and channel (self-serve, inside sales, partner, field) that fits the ACV.
+- 'Check viability: ACV must cover the cost of the sales motion; flag if not.'
+- List risks (long cycle, procurement barriers, low budget, strong incumbents) and decide verdict feasible, feasible_with_risks or not_feasible with confidence 0-1.
+- Return a feasibility_assessment artifact with evidence {verdict, risks, confidence}.
+validation:
+- 'feasibility_assessment evidence: verdict is one of feasible, feasible_with_risks, not_feasible; risks is a list; confidence is a number between 0 and 1'
+- Content contains ICP reachability, sales cycle, ACV range and channel, each with assumptions or source URLs
+failure_modes:
+- mode: No data on buying behaviour
+  handling: Use stated assumptions, lower confidence, and propose discovery interviews.
+- mode: ACV too low for any sales motion but self-serve
+  handling: Say so and recommend self-serve or not_feasible.
+- {mode: Research sources contradict, handling: Report the range and the sources.}
+required_capabilities: [perform_market_research]

@@ -1,0 +1,43 @@
+# Deterministic evidence rules per artifact type, enforced by orchestrator_kit/verify.py.
+# "Done." is never evidence: each artifact must carry these keys in `evidence`.
+# check: list (min_items), number (min/max), string, int, bool, object; equals: exact value.
+# special: git_commit = sha exists in the git repo at evidence.repository (inside the task workspace)
+#          http_ok    = GET evidence.url returns 2xx (independent health check)
+#          sources    = every item is an http(s) URL or an artifact id
+version: 1.0.0
+default: [{key: summary, check: string}]
+types:
+  research_report:        [{key: sources, check: list, min_items: 2, special: sources}, {key: findings, check: list, min_items: 1}, {key: confidence, check: number, min: 0, max: 1}]
+  business_case:          [{key: assumptions, check: list, min_items: 1}, {key: calculation, check: object}, {key: source_data, check: list, min_items: 1}]
+  financial_analysis:     [{key: assumptions, check: list, min_items: 1}, {key: calculation, check: object}, {key: source_data, check: list, min_items: 1}]
+  feasibility_assessment: [{key: verdict, check: string}, {key: risks, check: list}, {key: confidence, check: number, min: 0, max: 1}]
+  requirements_document:  [{key: requirements, check: list, min_items: 1}, {key: acceptance_criteria, check: list, min_items: 1}]
+  design_document:        [{key: flows, check: list, min_items: 1}]
+  architecture_document:  [{key: components, check: list, min_items: 1}, {key: decisions, check: list, min_items: 1}]
+  plan:                   [{key: steps, check: list, min_items: 1}]
+  decision_record:        [{key: selected_option, check: string}]
+  commit:                 [{key: sha, check: string, special: git_commit}, {key: repository, check: string}, {key: files_changed, check: list, min_items: 1}]
+  pull_request:           [{key: url, check: string}]
+  build:                  [{key: command, check: string}, {key: exit_code, check: int, equals: 0}]
+  test_result:            [{key: command, check: string}, {key: exit_code, check: int, equals: 0}, {key: passed, check: int, min: 1}, {key: failed, check: int, equals: 0}]
+  code_review:            [{key: verdict, check: string}, {key: findings, check: list}]
+  qa_report:              [{key: verdict, check: string}, {key: checks, check: list, min_items: 1}]
+  security_review:        [{key: verdict, check: string}, {key: findings, check: list}, {key: max_severity, check: string}]
+  release_report:         [{key: verdict, check: string}, {key: checks, check: list, min_items: 1}, {key: rollback_procedure, check: string}]
+  deployment:             [{key: environment, check: string}, {key: url, check: string, special: http_ok}, {key: version, check: string}]
+  gtm_plan:               [{key: target_segment, check: string}, {key: positioning, check: string}, {key: channels, check: list, min_items: 1}]
+  content:                [{key: channel, check: string}, {key: publication_status, check: string}]
+  campaign:               [{key: channel, check: string}, {key: publication_status, check: string}, {key: metrics, check: object}]
+  sales_lead:             [{key: lead_id, check: string}, {key: stage, check: string}, {key: source, check: string}]
+  proposal:               [{key: customer, check: string}, {key: scope, check: list, min_items: 1}, {key: price, check: object}]
+  analytics_report:       [{key: metrics, check: object}, {key: source_data, check: list, min_items: 1}]
+  customer_feedback:      [{key: source, check: string}, {key: themes, check: list, min_items: 1}]
+  support_ticket:         [{key: ticket_id, check: string}, {key: category, check: string}]
+  customer_health_report: [{key: customers_assessed, check: int, min: 0}, {key: signals, check: list}]
+  incident_report:        [{key: severity, check: string}, {key: timeline, check: list, min_items: 1}, {key: root_cause, check: string}]
+  operations_report:      [{key: metrics, check: object}, {key: findings, check: list}]
+  compliance_review:      [{key: verdict, check: string}, {key: risks, check: list}]
+  board_report:           [{key: sections, check: list, min_items: 1}]
+  approval_review:        [{key: verdict, check: string}]
+  verification_report:    [{key: verdict, check: string}, {key: checks, check: list, min_items: 1}]
+  other:                  [{key: summary, check: string}]

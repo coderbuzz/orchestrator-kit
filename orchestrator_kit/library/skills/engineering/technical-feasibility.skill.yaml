@@ -1,0 +1,32 @@
+id: technical-feasibility
+name: Technical feasibility
+description: Judge whether a product or feature can be built with acceptable effort and risk, with an effort estimate and confidence.
+version: 1.0.0
+purpose: Give decision makers an evidence-backed build/no-build signal before money and engineering time are committed.
+inputs:
+- product or feature description and requirements (if available)
+- constraints from the task contract (budget, deadline, team, compliance)
+- existing repository in the task workspace (if any)
+outputs: [feasibility_assessment]
+preconditions: ['The scope to assess is stated, even if roughly']
+procedure:
+- Restate the scope as a list of required capabilities (data, integrations, UI, AI, infrastructure).
+- If a repository exists in the workspace, read it to see what is already built and what constrains the design.
+- For each unfamiliar capability, research public sources (official docs, pricing pages, known limits) and record the URLs.
+- Pick the simplest viable approach using boring, well-supported technology; note one alternative only where it changes the verdict.
+- Estimate effort per capability in engineer-days with a low/high range; sum to a total range.
+- List risks (technical unknowns, third-party dependency, data/privacy, security, cost at scale), each with likelihood, impact and mitigation.
+- 'Decide the verdict: feasible, feasible_with_risks or not_feasible; set confidence 0-1 reflecting how much was verified versus assumed.'
+- Return a feasibility_assessment with the verdict, effort range, risks, sources and assumptions in content and the required keys in evidence.
+validation:
+- 'feasibility_assessment evidence: verdict is one of feasible, feasible_with_risks, not_feasible; risks is a list (each with mitigation); confidence is a number between 0 and 1'
+- Content contains an effort estimate as a range and the assumptions behind it
+- Claims about third-party limits or pricing cite a source URL
+failure_modes:
+- mode: Scope too vague to estimate
+  handling: Give a coarse range with low confidence and list the questions that would narrow it; do not invent requirements.
+- mode: Depends on an unverified third-party API or model capability
+  handling: Mark it as a risk, lower confidence, and propose a spike task to verify it.
+- mode: Research sources unavailable or contradictory
+  handling: Say so, cite what was found, and reduce confidence accordingly.
+required_capabilities: [perform_market_research, read_repository]

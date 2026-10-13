@@ -1,0 +1,33 @@
+id: incident-response
+name: Incident response
+description: Assess, contain and resolve a production incident rollback-first, and report its timeline and root cause.
+version: 1.0.0
+purpose: Restore service quickly and safely, then learn from the failure with a factual report and follow-up tasks.
+inputs:
+- incident trigger (DeploymentFailed, IncidentDetected, alert or report)
+- current metrics and recent deployment artifacts
+- company state (products, infrastructure, open incidents)
+outputs: [incident_report]
+preconditions: [An incident or suspected incident has been reported]
+procedure:
+- Record the detection time and the trigger; start a timeline with timestamped entries for every observation and action.
+- 'Assess severity from impact: sev1 (outage or data loss/exposure), sev2 (major feature degraded), sev3 (minor, workaround exists), sev4 (cosmetic).'
+- Read metrics and recent deployments to find what changed just before the incident.
+- 'Contain rollback-first: if a recent deployment correlates, recommend rollback to the last good version via a deployment action; prefer rollback over forward fixes.'
+- If data exposure is suspected, preserve evidence, stop the exposure, and flag it for compliance-review and the Board.
+- Confirm recovery from metrics (error rate and latency back to baseline) before declaring it resolved.
+- Determine the root cause from evidence (change, config, dependency, capacity); write unknown if not established, never guess.
+- 'Create follow-up tasks: fix (debugging), missing tests or alerts, process changes, each with an owner agent and acceptance criteria.'
+- Return an incident_report artifact with evidence {severity, timeline, root_cause}; for sev1/sev2 add a state_update to incidents if this agent owns that section.
+validation:
+- 'incident_report evidence: severity is a string (sev1-sev4); timeline is a list with at least one timestamped entry; root_cause is a string ("unknown: <what is missing>" if not yet established)'
+- Containment recommends rollback first when a recent deployment correlates with the incident
+- Each follow-up task has an agent and acceptance criteria
+failure_modes:
+- mode: Rollback unavailable or failed
+  handling: Escalate severity, request approval for a forward fix, and notify the owner chain; do not retry a failed production deploy automatically.
+- mode: Insufficient telemetry
+  handling: Record the gap in the timeline, set root_cause to unknown with what is missing, and add an observability follow-up.
+- mode: Suspected personal data breach
+  handling: Treat as sev1, flag for compliance-review and the Board (UU PDP notification duties may apply), and do not copy personal data into the report.
+required_capabilities: [read_metrics]
