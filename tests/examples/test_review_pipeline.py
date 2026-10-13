@@ -245,3 +245,44 @@ def test_native_subagent_usage_is_recorded_as_data_never_charged(review):
            ("native", "opus", {"totalTokens": 28840}, 0.0, None, 5.4)
     assert (u["today_usd"], u["today_tokens"], u["unpriced_calls"]) == (0, 28840, 1)
     assert "usage" in [x for x in s.tools if x["name"] == "task_submit"][0]["inputSchema"]["properties"]
+
+
+def _transcript(path, task_id):
+    contract = "# Task contract\n```json\n" + json.dumps({"task_id": task_id, "objective": "review"}, indent=1) + "\n```"
+    msg = lambda mid, model, **u: {"type": "assistant", "timestamp": "2026-10-13T10:00:05Z",  # noqa: E731
+                                   "message": {"id": mid, "model": model, "usage": {"input_tokens": 0, "cache_creation_input_tokens": 0,
+                                                                                    "cache_read_input_tokens": 0, "output_tokens": 0, **u}}}
+    rows = [{"type": "user", "timestamp": "2026-10-13T10:00:00Z", "message": {"role": "user", "content": contract}},
+            msg("m1", "claude-opus-5-5", input_tokens=2, cache_creation_input_tokens=1000, output_tokens=10),
+            msg("m1", "claude-opus-5-5", input_tokens=2, cache_creation_input_tokens=1000, output_tokens=10),  # same message, 2nd block
+            {**msg("m2", "claude-opus-5-5", input_tokens=3, cache_read_input_tokens=1000, output_tokens=40), "timestamp": "2026-10-13T10:00:12Z"}]
+    path.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    return path
+
+
+def test_subagent_stop_hook_records_exact_usage_once_on_its_task(review):
+    from orchestrator_kit import usage
+    s, _, base, _, tmp = review
+    t = s.call("task_add", {"project": "pr-7", "agent": "security-reviewer", "objective": "review", "criteria": ["in diff"],
+                            "skill": "security-review", "inputs": {"workdir": "repo"}})
+    tr = _transcript(tmp / "agent-x.jsonl", t)
+    u = usage.transcript_usage(tr)
+    assert u == {"task_id": t, "model": "claude-opus-5-5", "duration_s": 12.0,
+                 "tokens": {"inputTokens": 2005, "cacheWriteTokens": 1000, "cacheReadTokens": 1000, "outputTokens": 50}}, "duplicate lines count once"
+    event = {"hook_event_name": "SubagentStop", "agent_id": "x", "agent_type": "review-pipeline:security-reviewer", "agent_transcript_path": str(tr)}
+    assert usage.record({**event, "agent_type": "other-plugin:security-reviewer"}, PACK, ws=tmp / "ws") is None, "another plugin's subagent"
+    assert usage.record(event, PACK, ws=tmp / "ws") == "pr-7"
+    assert usage.record(event, PACK, ws=tmp / "ws") == "pr-7"   # the hook may fire twice: recorded once
+    calls = s.company("pr-7").store.read_log("usage.jsonl")
+    assert [(c["harness"], c["model"], c["tokens"]["outputTokens"], c["cost_usd"]) for c in calls] == [("native", "claude-opus-5-5", 50, 0.0)]
+    opus = {"flat": True, "in": 4.0, "cache_write": 5.0, "cache_hit": 0.2, "out": 20.0}   # list prices: cache write and read priced apart
+    from orchestrator_kit import harness
+    assert harness.token_cost(opus, u["tokens"]) == round((5 * 4.0 + 1000 * 5.0 + 1000 * 0.2 + 50 * 20.0) / 1e6, 6)
+    assert usage.hook_main(PACK, stdin=__import__("io").StringIO("not json")) == 0, "never fails the session"
+
+
+def test_usage_command_adds_the_subagent_stop_hook(tmp_path):
+    from orchestrator_kit import scaffold
+    scaffold.new_company(tmp_path / "acme", "acme", "Acme Labs")
+    hooks = json.loads((tmp_path / "acme/plugin/hooks/hooks.json").read_text())["hooks"]
+    assert hooks["SubagentStop"] == [{"hooks": [{"type": "command", "command": f"orchestrator-kit usage-hook {tmp_path / 'acme'}"}]}]

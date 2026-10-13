@@ -172,7 +172,8 @@ def new_company(dest: Path, name: str, title: str, human: str = "board", mission
             "human": {"id": human, "tool_prefix": prefix}, "preamble": "agents/shared/preamble.md", "def_keys": list(lib.pack.def_keys),
             "plugin": {"version": "0.1.0", "author": title, "description": f"{title}: talk to the orchestrator, who runs workspace projects with the company's agents."},
             "mcp": {"command": "orchestrator-kit", "args": ["mcp", str(dest)], "instructions": f"{title} company tools. The orchestrator skill describes how to use them."},
-            "hook": {"command": f"orchestrator-kit hook .company {prefix}", "description": f"{prefix}* tools always ask the human; project state is off-limits to the shell."},
+            "hook": {"command": f"orchestrator-kit hook .company {prefix}", "description": f"{prefix}* tools always ask the human; project state is off-limits to the shell.",
+                     "usage_command": f"orchestrator-kit usage-hook {dest}"},
             "vocabulary": lib.pack.vocabulary}
     (dest / "pack.yaml").write_text("# Company manifest (orchestrator-kit). mcp.args holds this repo's path: run `orchestrator-kit plugin` after moving it.\n" + dump(pack))
     if mission:

@@ -147,6 +147,7 @@
         "properties": {
           "in": {"type": "number", "minimum": 0},
           "cache_hit": {"type": "number", "minimum": 0},
+          "cache_write": {"type": "number", "minimum": 0, "description": "Cache write price (default: in)."},
           "out": {"type": "number", "minimum": 0},
           "flat": {"type": "boolean"}
         }

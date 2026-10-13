@@ -247,8 +247,10 @@ class Runtime:
         verification, then COMPLETED, or back to PLANNED with feedback (bounded by attempts), or FAILED / BLOCKED.
         Returns {"status", "notes"}. `usage`: what a native subagent consumed, as its harness reports it (recorded, never charged)."""
         errs = validate_instance("agent-result", result, self.reg.root)
-        if usage:
-            self.record_native_usage(task_id, usage)
+        if usage:  # as the session saw it (a total only); the SubagentStop hook records the exact split instead
+            self.record_native_usage(task_id, model=usage.get("model"), duration_s=round((usage.get("duration_ms") or 0) / 1000, 1),
+                                     tokens={"totalTokens": int(usage["total_tokens"])} if isinstance(usage.get("total_tokens"), (int, float)) else {},
+                                     tool_uses=usage.get("tool_uses"))
         with self.store.tx():
             t = self.task(task_id)
             if t["status"] != "RUNNING":
@@ -440,17 +442,20 @@ class Runtime:
             return self._process(t)
 
     # ------------------------------------------------------------------ worker harness dispatch
-    def record_native_usage(self, task_id: str, usage: dict):
-        """A native subagent runs on the orchestrator session's own account: never charged to the budget, but its tokens are
-        kept as data. Its list-price equivalent is unknown (the session sees only a total), so it counts as unpriced."""
+    def record_native_usage(self, task_id: str, *, model: str | None = None, tokens: dict | None = None, duration_s: float = 0.0,
+                            equivalent: float | None = None, tool_uses: int | None = None, key: str | None = None):
+        """A native subagent runs on the orchestrator session's own account: never charged to the budget, its usage kept as
+        data. `key` (the subagent id) records it once; `equivalent` is None when only a total is known."""
         t = self.task(task_id)
-        tokens = {k: int(usage[s]) for s, k in (("total_tokens", "totalTokens"), ("input_tokens", "inputTokens"), ("output_tokens", "outputTokens"))
-                  if isinstance(usage.get(s), (int, float))}
-        self.store.append("usage.jsonl", {"at": now(), "task_id": task_id, "agent": t["assigned_agent"], "harness": "native",
-                                          "model": str(usage.get("model") or "")[:60] or None, "provider": None, "effort": None, "tokens": tokens,
-                                          "cost_usd": 0.0, "equivalent_cost_usd": None, "estimated": False, "ok": True,
-                                          "duration_s": round((usage.get("duration_ms") or 0) / 1000, 1), "error": "",
-                                          "tool_uses": usage.get("tool_uses")})
+        with self.store.tx():
+            if key and self.store.done(f"native:{key}"):
+                return
+            self.store.append("usage.jsonl", {"at": now(), "task_id": task_id, "agent": t["assigned_agent"], "harness": "native",
+                                              "model": str(model or "")[:60] or None, "provider": None, "effort": None, "tokens": tokens or {},
+                                              "cost_usd": 0.0, "equivalent_cost_usd": equivalent, "estimated": False, "ok": True,
+                                              "duration_s": duration_s, "error": "", "tool_uses": tool_uses})
+            if key:
+                self.store.mark(f"native:{key}")
 
     def spend(self) -> dict:
         """Charged spend (what budgets count; flat plans 0) and list-price equivalent (data for projections), today and in total."""
