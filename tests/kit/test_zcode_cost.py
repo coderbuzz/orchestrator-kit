@@ -26,10 +26,26 @@ def test_cache_read_tokens_priced_at_the_hit_rate():
     assert harness.token_cost(p, {"inputTokens": 11000, "cacheReadTokens": 10000, "outputTokens": 0}) == round(1000 * 0.30 / 1e6 + 10000 * 0.006 / 1e6, 6)
 
 
-def test_flat_plans_cost_zero_but_are_not_estimates():
+def test_flat_plans_charge_zero_but_are_not_estimates():
     for prov in ("account:zai-start-plan", "account:zai-individual-coding-plan"):
-        out, cost, err = harness.parse("zcode", zh_json(inputTokens=5000, outputTokens=500), harness.price_for(Z, prov, "GLM-5.3-Flash"))
-        assert cost == 0.0 and out == RESULT
+        price = harness.price_for(Z, prov, "GLM-5.3-Flash")
+        out, listed, err = harness.parse("zcode", zh_json(inputTokens=5000, outputTokens=500), price)
+        assert out == RESULT and listed is None, "no list price in the descriptor: the equivalent stays unknown, tokens are kept"
+        assert harness.billing(price, listed) == (0.0, None), "charged 0, not None (None would apply the config estimate)"
+
+
+def test_flat_plan_with_list_prices_keeps_the_equivalent_and_dsh_is_charged():
+    flat = {"flat": True, **DS}
+    listed = harness.token_cost(flat, {"inputTokens": 1000, "outputTokens": 100})
+    assert listed == round(1000 * 0.30 / 1e6 + 100 * 1.20 / 1e6, 6) and harness.billing(flat, listed) == (0.0, listed)
+    assert harness.billing(DS, listed) == (listed, listed), "pay-as-you-go (DeepSeek on dsh) counts against the budget"
+
+
+def test_claude_code_on_a_flat_plan_charges_zero_and_keeps_the_cli_cost():
+    out, listed, err = harness.parse("claude-code", json.dumps({"subtype": "success", "is_error": False, "total_cost_usd": 0.42,
+                                                                "structured_output": RESULT}))
+    assert out == RESULT and listed == 0.42
+    assert harness.billing({"flat": True}, listed) == (0.0, 0.42) and harness.billing(None, listed) == (0.42, 0.42)
 
 
 def test_unpriced_route_and_plain_stdout_fall_back():

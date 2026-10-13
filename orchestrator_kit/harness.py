@@ -40,8 +40,9 @@ class CallResult:
     model: str
     output: dict | None = None
     error: str = ""
-    cost_usd: float = 0.0
+    cost_usd: float = 0.0              # charged to budgets: 0 on a flat plan
     cost_estimated: bool = False
+    equivalent_cost_usd: float | None = None  # at list price, flat plans included (data for cost projections); None = unpriced
     duration_s: float = 0.0
     raw: str = field(default="", repr=False)
     provider: str | None = None
@@ -206,11 +207,9 @@ def price_for(hdef: dict, provider: str | None, model: str) -> dict | None:
 
 
 def token_cost(price: dict | None, usage: dict) -> float | None:
-    """USD for one call from zh `--json` usage; None = unpriced (caller falls back to the estimate)."""
-    if not price:
+    """USD at list price for one call from token usage; None = unpriced (a flat entry without list prices included)."""
+    if not price or "in" not in price:
         return None
-    if price.get("flat"):
-        return 0.0
     hit = usage.get("cacheReadTokens") or 0
     return round(((usage.get("inputTokens") or 0) - hit) * price["in"] / 1e6 + hit * price.get("cache_hit", price["in"]) / 1e6
                  + (usage.get("outputTokens") or 0) * price["out"] / 1e6, 6)
@@ -276,8 +275,14 @@ def usage_of(harness_id: str, stdout: str) -> dict:
     return p(stdout)[1] if p else {}
 
 
+def billing(price: dict | None, listed: float | None) -> tuple[float | None, float | None]:
+    """(charged, equivalent) for a call whose list-price cost is `listed`: a flat plan charges 0 and keeps the list price as
+    data; otherwise both are the list price (None = unpriced, the Router applies the config estimate)."""
+    return (0.0 if price and price.get("flat") else listed), listed
+
+
 def parse(harness_id: str, stdout: str, price: dict | None = None) -> tuple[dict | None, float | None, str]:
-    """-> (agent result, exact cost or None, error)."""
+    """-> (agent result, cost at list price or None, error). Billing (flat plans) is applied by `billing`."""
     if harness_id == "claude-code":
         try:
             d = json.loads(stdout)
@@ -328,12 +333,14 @@ def invoke(hdef: dict, model: str, req: Request, schema: dict) -> CallResult:
             return CallResult(False, hdef["id"], model, error=f"cannot start harness: {e}")
         out.seek(0)
         stdout = out.read()
-    output, cost, err = parse(hdef["id"], stdout, price_for(hdef, req.provider, model))
+    price = price_for(hdef, req.provider, model)
+    output, listed, err = parse(hdef["id"], stdout, price)
+    cost, equivalent = billing(price, listed)
     usage = usage_of(hdef["id"], stdout)
     if p.returncode != 0 and (not err or not stdout.strip()):
         err = f"exit {p.returncode}: {p.stderr.strip()[-300:] or err}"
     return CallResult(not err, hdef["id"], model, output=output, error=err, cost_usd=cost or 0.0,
-                      cost_estimated=cost is None, duration_s=time.time() - t0, raw=stdout[-4000:],
+                      cost_estimated=cost is None, equivalent_cost_usd=equivalent, duration_s=time.time() - t0, raw=stdout[-4000:],
                       tokens={k: usage[k] for k in ("inputTokens", "outputTokens", "cacheReadTokens", "reasoningTokens") if k in usage})
 
 
@@ -407,7 +414,7 @@ class Router:
                 r = invoke_fn(hdef, model, this, self.reg.result_schema)
                 r.provider, r.effort = rt.provider, effort
                 if r.ok and r.cost_estimated and hdef.get("cost_reporting") in ("none", "tokens"):  # unpriced route: config estimate
-                    r.cost_usd = hcfg.get("estimated_cost_usd_per_call") or 0.0
+                    r.cost_usd = r.equivalent_cost_usd = hcfg.get("estimated_cost_usd_per_call") or 0.0
                 if r.ok:
                     errs = [e.message for e in self._validator.iter_errors(r.output)]
                     if errs:

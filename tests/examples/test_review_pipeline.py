@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from conftest import FakeHarness
+from orchestrator_kit.harness import CallResult
 from orchestrator_kit import hook, validate
 from orchestrator_kit.plugin import generate
 from orchestrator_kit.registry import Registry
@@ -215,3 +216,17 @@ def test_native_subagent_gets_the_contract_and_a_contract_violation_uses_the_att
                              "skill": "security-review", "inputs": {"workdir": "repo"}})
     s.call("task_start", {"project": "pr-7", "task_id": t2})
     assert s.call("task_submit", {"project": "pr-7", "task_id": t2, "result": result(scope(base))})["status"] == "COMPLETED"
+
+
+def test_flat_plan_calls_do_not_count_against_the_budget_but_are_kept_as_data(review):
+    s, answers, base, _, _ = review   # daily budget 5 USD; each call is worth 3 USD at list price on a flat plan
+    answers["simplicity-reviewer"] = [CallResult(True, "zcode", "m", output=result(scope(base)), cost_usd=0.0, equivalent_cost_usd=3.0,
+                                                 tokens={"inputTokens": 10})] * 2
+    for _ in range(2):
+        t = s.call("task_add", {"project": "pr-7", "agent": "simplicity-reviewer", "objective": "r", "criteria": ["x"],
+                                "skill": "simplicity-review", "inputs": {"workdir": "repo"}})
+        assert s.call("dispatch", {"project": "pr-7", "task_id": t})["status"] == "COMPLETED"
+    u = s.call("usage", {"project": "pr-7"})
+    assert (u["today_usd"], u["today_equivalent_usd"], u["total_equivalent_usd"], u["unpriced_calls"]) == (0, 6.0, 6.0, 0)
+    assert u["calls"][-1]["equivalent_cost_usd"] == 3.0 and u["calls"][-1]["tokens"] == {"inputTokens": 10}
+    assert not [m for m in s.company("pr-7").store.read_log("maintainer/inbox.jsonl") if m["kind"] == "budget"], "no 80% warning"

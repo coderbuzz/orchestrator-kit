@@ -49,7 +49,7 @@ def core_tools(pack: Pack, descriptions: dict | None = None) -> dict[str, dict]:
          "dispatch": "Run a task on a worker harness with its AI selection, charge the cost, submit the result.",
          "review": "Record an agent-level approval decision taken by the approver agent's review (never the requester's).",
          "approvals": f"Approvals waiting, across all projects or one; `{h}: true` ones need the {h} (the human).",
-         "usage": "AI spend of a project today and its recent calls.",
+         "usage": "AI spend of a project: charged (counts against budgets; flat plans 0) and list-price equivalent, today and in total, with recent calls.",
          f"{pack.human_prefix}decide": f"{H} ONLY: record the human's decision on a {h} approval. Call only after the human decided it "
                                        "in this conversation; the human confirms the call.",
          f"{pack.human_prefix}staff": f"{H} ONLY: hire agents from the company catalog onto a project's roster, or release them, after the "
@@ -183,7 +183,7 @@ class Server:
 
     def _usage(self, _, a):
         c = self.company(a["project"])
-        return {"today_usd": round(c.daily_spend(), 4), "calls": c.store.read_log("usage.jsonl", limit=20)}
+        return {**c.spend(), "calls": c.store.read_log("usage.jsonl", limit=20)}
 
     def _human_decide(self, _, a):
         return self.company(a["project"]).resolve_approval(a["approval_id"], a["approve"], self.pack.human_id, a.get("note", ""))

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0 (2026-10-13)
+Charged cost vs list-price equivalent:
+- A call records `cost_usd` (charged; what budgets, the daily cap and the 80% notice count) and `equivalent_cost_usd`
+  (list price, kept as data for cost projections; None = unpriced). A `{flat: true}` pricing entry charges 0 for any
+  `cost_reporting`, claude-code included (its CLI-reported cost becomes the equivalent); a flat entry may carry list prices
+  (`in`/`cache_hit`/`out`) to price its tokens. Pay-as-you-go routes are charged as before.
+- `usage` returns `today_usd`, `today_equivalent_usd`, `total_usd`, `total_equivalent_usd`, `unpriced_calls` (was `today_usd` only).
+- API change: `harness.parse` returns the list-price cost (a flat entry without list prices gives None, not 0.0);
+  `harness.billing(price, listed)` gives (charged, equivalent).
+
 ## 0.3.0 (2026-10-13)
 Behavior change:
 - `task_submit` with a result that breaks the agent-result contract no longer raises and leaves the task RUNNING: it uses the

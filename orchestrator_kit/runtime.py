@@ -433,6 +433,15 @@ class Runtime:
             return self._process(t)
 
     # ------------------------------------------------------------------ worker harness dispatch
+    def spend(self) -> dict:
+        """Charged spend (what budgets count; flat plans 0) and list-price equivalent (data for projections), today and in total."""
+        today, calls = now()[:10], self.store.read_log("usage.jsonl")
+        tot = lambda key, rows: round(sum(u.get(key) or 0 for u in rows), 6)  # noqa: E731
+        todays = [u for u in calls if u["at"][:10] == today]
+        return {"today_usd": tot("cost_usd", todays), "today_equivalent_usd": tot("equivalent_cost_usd", todays),
+                "total_usd": tot("cost_usd", calls), "total_equivalent_usd": tot("equivalent_cost_usd", calls),
+                "unpriced_calls": sum(u.get("equivalent_cost_usd") is None for u in calls)}
+
     def daily_spend(self) -> float:
         today = now()[:10]
         return sum(u["cost_usd"] for u in self.store.read_log("usage.jsonl") if u["at"][:10] == today)
@@ -474,7 +483,7 @@ class Runtime:
             t = self.task(task_id)
             for a in attempts:
                 self.store.append("usage.jsonl", {"at": now(), "task_id": task_id, "agent": t["assigned_agent"], "harness": a.harness,
-                                                  "model": a.model, "provider": a.provider, "effort": a.effort or ai.get("effort"), "tokens": a.tokens, "cost_usd": a.cost_usd, "estimated": a.cost_estimated,
+                                                  "model": a.model, "provider": a.provider, "effort": a.effort or ai.get("effort"), "tokens": a.tokens, "cost_usd": a.cost_usd, "equivalent_cost_usd": a.equivalent_cost_usd, "estimated": a.cost_estimated,
                                                   "ok": a.ok, "duration_s": round(a.duration_s, 1), "error": a.error[:300]})
                 t["cost_usd"] = round(t["cost_usd"] + a.cost_usd, 6)
             self.store.put("tasks", t)
