@@ -128,6 +128,23 @@ class Registry:
                   self.mapped_ai(agent_id, sid), (skill or {}).get("ai"), task_ai]
         return merge_ai(*layers)
 
+    def native_model(self, agent_id: str, skill_id: str | None = None, task_ai: dict | None = None) -> str | None:
+        """Claude model a native (session) subagent runs on: the task's ai on claude-code > the approved native mapping (skill,
+        then agent) > the agent's claude-code ai > the first claude-code candidate of its model policy."""
+        if task_ai and task_ai.get("harness") == "claude-code" and task_ai.get("model"):
+            return task_ai["model"]
+        n = self.mapping.get("native") or {}
+        if n.get("status") == "approved":
+            if skill_id and (m := (n.get("skills") or {}).get(skill_id)):
+                return m
+            if m := (n.get("agents") or {}).get(agent_id):
+                return m
+        ai = self.ai_for(agent_id, None)
+        if ai.get("harness") == "claude-code" and ai.get("model"):
+            return ai["model"]
+        cands = [c for c in self.model_policies[self.agents[agent_id]["model_policy"]]["candidates"] if c.get("harness") == "claude-code" and c.get("model")]
+        return cands[0]["model"] if cands else None
+
     def mapped_fallbacks(self, agent_id: str, skill_id: str | None = None) -> list[dict]:
         """Ordered fallback selections of the approved mapping entry (skill entry first, else the agent's); [] if none."""
         for sk in ([skill_id] if skill_id else []) + [None]:

@@ -286,3 +286,36 @@ def test_usage_command_adds_the_subagent_stop_hook(tmp_path):
     scaffold.new_company(tmp_path / "acme", "acme", "Acme Labs")
     hooks = json.loads((tmp_path / "acme/plugin/hooks/hooks.json").read_text())["hooks"]
     assert hooks["SubagentStop"] == [{"hooks": [{"type": "command", "command": f"orchestrator-kit usage-hook {tmp_path / 'acme'}"}]}]
+
+
+NATIVE = {"status": "approved", "approval": {"by": "maintainer", "at": "2026-10-13", "quote": "yes"},
+          "agents": {"security-reviewer": "sonnet"}, "skills": {"bug-review": "opus"}, "light_tasks": "haiku"}
+
+
+def test_native_model_order_task_then_skill_then_agent_then_policy(review):
+    s, _, _, _, _ = review
+    c = s.company("pr-7")
+    assert c.reg.native_model("security-reviewer") == "opus", "no native mapping: first claude-code candidate of its policy"
+    c.reg.mapping = {**c.reg.mapping, "native": {**NATIVE, "status": "proposed"}}
+    assert c.reg.native_model("security-reviewer") == "opus", "a proposed native mapping never applies"
+    c.reg.mapping = {**c.reg.mapping, "native": NATIVE}
+    assert c.reg.native_model("security-reviewer") == "sonnet"
+    assert c.reg.native_model("bug-reviewer", "bug-review") == "opus" and c.reg.native_model("bug-reviewer") == "haiku"
+    assert c.reg.native_model("security-reviewer", None, {"harness": "claude-code", "model": "haiku"}) == "haiku", "the task's own ai wins"
+    t = s.call("task_add", {"project": "pr-7", "agent": "bug-reviewer", "objective": "r", "criteria": ["x"], "skill": "bug-review",
+                            "inputs": {"workdir": "repo"}})
+    assert s.call("task_start", {"project": "pr-7", "task_id": t})["model"] == "opus"
+    files = generate(c.reg, rp.ReviewGenerator())
+    assert "model: sonnet" in files["agents/security-reviewer.md"]
+
+
+def test_native_mapping_models_are_validated(tmp_path):
+    copy = tmp_path / "pack"
+    shutil.copytree(PACK, copy, ignore=shutil.ignore_patterns("__pycache__"))
+    import yaml
+    mapping = {"schema": "company-os/agent-mapping/1", "entries": [], "provider_policy": {"order": [{"id": "x", "provider": "anthropic", "switch_when": "never"}], "rules": ["r"], "status": "proposed"},
+               "native": {**NATIVE, "agents": {"security-reviewer": "gpt-9", "nobody": "opus"}}}
+    (copy / "model-routing/mappings").mkdir(parents=True, exist_ok=True)
+    (copy / "model-routing/mappings/agent-mapping.yaml").write_text(yaml.safe_dump(mapping))
+    errs = validate.check(copy)
+    assert any("native.agents.security-reviewer: 'gpt-9'" in e for e in errs) and any("native.agents.nobody: unknown agent" in e for e in errs)
