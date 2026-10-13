@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.4 (2026-10-14)
 - `Server.call` refuses a call missing a required argument of the tool schema, naming it (was a bare `KeyError`).
 
 ## 0.7.3 (2026-10-13)
