@@ -156,3 +156,36 @@ def test_kit_hook_guards_the_packs_state_and_human_tools():
     loaded = subprocess.run([sys.executable, "-c", "import sys, orchestrator_kit.hook; print(sorted({'yaml', 'jsonschema'} & set(sys.modules)))"],
                             capture_output=True, text=True, check=True).stdout.strip()
     assert loaded == "[]", "the hook runs on every tool call: stdlib only"
+
+
+def test_project_hires_its_team_from_the_catalog(tmp_path):
+    (tmp_path / "ws/pr-9").mkdir(parents=True)
+    s = rp.server(tmp_path / "ws", invoke=FakeHarness())
+    with pytest.raises(Refused, match="not in the company catalog"):
+        s.call("project_init", {"project": "pr-9", "name": "PR 9", "daily_budget_usd": 1, "roster": ["copywriter"]})
+    info = s.call("project_init", {"project": "pr-9", "name": "PR 9", "daily_budget_usd": 1, "goal": "Ship PR 9 without security defects",
+                                   "roster": ["security-reviewer"]})
+    assert info["roster"] == ["review-lead", "security-reviewer"], "the orchestrator is always on the roster"
+    with pytest.raises(Refused, match="unknown or disabled agent 'bug-reviewer'"):
+        s.call("task_add", {"project": "pr-9", "agent": "bug-reviewer", "objective": "x", "criteria": ["x"]})
+    info = s.call("maintainer_staff", {"project": "pr-9", "hire": ["bug-reviewer"], "release": ["security-reviewer"]})
+    assert info["roster"] == ["bug-reviewer", "review-lead"]
+    with pytest.raises(Refused, match="orchestrator stays"):
+        s.call("maintainer_staff", {"project": "pr-9", "release": ["review-lead"]})
+    t = s.call("task_add", {"project": "pr-9", "agent": "bug-reviewer", "objective": "x", "criteria": ["x"]})
+    c = s.company("pr-9")
+    assert '"project_goal": "Ship PR 9 without security defects"' in c.prompt(c.task(t), c.reg.agents["bug-reviewer"], None)[1]
+    assert any(a["action"] == "roster" for a in c.store.read_log("audit.jsonl"))
+
+
+def test_human_is_told_at_80_percent_of_the_daily_budget(review):
+    s, answers, base, _, _ = review   # daily budget 5 USD; each fake call costs 2 USD
+    c = s.company("pr-7")
+    c.invoke.cost = 2.0
+    answers["simplicity-reviewer"] = [result(scope(base))] * 3
+    for _ in range(2):
+        t = s.call("task_add", {"project": "pr-7", "agent": "simplicity-reviewer", "objective": "r", "criteria": ["x"],
+                                "skill": "simplicity-review", "inputs": {"workdir": "repo"}})
+        s.call("dispatch", {"project": "pr-7", "task_id": t})
+    warnings = [m for m in c.store.read_log("maintainer/inbox.jsonl") if m["kind"] == "budget"]
+    assert len(warnings) == 1 and "80%" in warnings[0]["message"]

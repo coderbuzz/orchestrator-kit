@@ -31,9 +31,36 @@ class Refused(Exception):
     """A guardrail said no. The message is the reason."""
 
 
+BUDGET_WARNING = 0.8  # share of the daily cap at which the human is told (once per day)
+
+
 def projects(workspace: Path, project_file: str) -> dict[str, Path]:
     """Workspace projects the company runs: folders holding the pack's project file (company.yaml)."""
     return {p.parent.name: p.parent for p in sorted(Path(workspace).glob(f"*/{project_file}"))}
+
+
+def read_project(project_dir: Path, root: Path) -> dict:
+    """A project file, schema-checked (Refused if invalid)."""
+    pack = Pack.load(root)
+    f = Path(project_dir) / pack.project_file
+    cfg = yaml.safe_load(f.read_text()) or {}
+    if errs := errors_for(validator_for(load(schema_file("company/project.schema.json", root)), root), cfg):
+        raise Refused(f"{f}: {errs[:3]}")
+    return cfg
+
+
+def write_project(project_dir: Path, root: Path, cfg: dict, new: bool = False) -> dict:
+    """Write a project file after checking it against the schema and the company catalog (roster ids must be enabled agents)."""
+    pack, reg = Pack.load(root), Registry(root)
+    f = Path(project_dir) / pack.project_file
+    if not Path(project_dir).is_dir() or (new and f.exists()):
+        raise Refused(f"{project_dir} must exist" + (f" and not have a {pack.project_file} yet" if new else ""))
+    if errs := errors_for(validator_for(load(schema_file("company/project.schema.json", root)), root), cfg):
+        raise Refused(f"{f}: {errs[:3]}")
+    if unknown := sorted(set(cfg.get("roster") or []) - reg.enabled_agents):
+        raise Refused(f"not in the company catalog (or not enabled): {unknown}; hire into the company first")
+    f.write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True))
+    return cfg
 
 
 class Runtime:
@@ -47,27 +74,27 @@ class Runtime:
         """The company as configured for one workspace project: its own state, budget, agents and default AI."""
         project_dir, root = Path(project_dir), Path(kw.get("root") or ROOT)
         pack = Pack.load(root)
-        cfg = yaml.safe_load((project_dir / pack.project_file).read_text()) or {}
-        if errs := errors_for(validator_for(load(schema_file("company/project.schema.json", root)), root), cfg):
-            raise Refused(f"{project_dir / pack.project_file}: {errs[:3]}")
+        cfg = read_project(project_dir, root)
         c = cls(state_dir=project_dir / pack.state_dir / "state", **kw)
-        c.project_dir = project_dir
+        c.project_dir, c.project = project_dir, cfg
         conf = c.reg.config
         spending = {**(conf["policies"].get("parameters") or {}).get("spending", {}),
                     **({"max_cost_usd_per_day": cfg["daily_budget_usd"]} if "daily_budget_usd" in cfg else {}),
                     **({"max_cost_usd_per_task": cfg["task_budget_usd"]} if "task_budget_usd" in cfg else {})}
         conf["policies"] = {**conf["policies"], "parameters": {**(conf["policies"].get("parameters") or {}), "spending": spending}}
-        if "agents" in cfg:
-            unknown = set(cfg["agents"]) - set(c.reg.agents)
+        if "roster" in cfg:  # the hired team; orchestrators (the session's own agent) are always on it
+            unknown = set(cfg["roster"]) - set(c.reg.agents)
             if unknown:
                 raise Refused(f"{project_dir / pack.project_file}: unknown agents {sorted(unknown)}")
-            conf["agents"] = {**conf["agents"], "enabled": [a for a in conf["agents"].get("enabled", []) if a in cfg["agents"]]}
+            hired = set(cfg["roster"]) | {a for a, d in c.reg.agents.items() if d["type"] == "orchestrator"}
+            conf["agents"] = {**conf["agents"], "enabled": [a for a in conf["agents"].get("enabled", []) if a in hired]}
         if "default_ai" in cfg:
             conf["models"] = {**conf["models"], "default_ai": cfg["default_ai"]}
         return c
 
     def __init__(self, root: Path | None = None, state_dir: Path | None = None, invoke=None, adapters=None):
         self.project_dir: Path | None = None
+        self.project: dict = {}
         self.reg = Registry(root)
         self.store = Store(state_dir or self.reg.state_dir, self.reg.root)
         self.workspaces_dir = (Path(state_dir) / "workspaces") if state_dir else self.reg.workspaces_dir
@@ -446,10 +473,18 @@ class Runtime:
                                                   "ok": a.ok, "duration_s": round(a.duration_s, 1), "error": a.error[:300]})
                 t["cost_usd"] = round(t["cost_usd"] + a.cost_usd, 6)
             self.store.put("tasks", t)
+            self._budget_warning()
             last = attempts[-1]
             if not last.ok:
                 return self._retry_or_fail(t, f"all model candidates failed; last: {last.harness}/{last.model}: {last.error}")
         return self.submit(task_id, last.output)
+
+    def _budget_warning(self):
+        """Tell the human once a day when spend reaches BUDGET_WARNING of the daily cap (the cap itself refuses dispatch)."""
+        cap, key = self.reg.policy_params("spending").get("max_cost_usd_per_day"), f"budget-warning:{now()[:10]}"
+        if cap and self.daily_spend() >= BUDGET_WARNING * cap and not self.store.done(key):
+            self.store.mark(key)
+            self.notify_human("system", f"Spend today {self.daily_spend():.2f} USD reached {BUDGET_WARNING:.0%} of the daily cap {cap} USD", kind="budget")
 
     def prompt(self, t: dict, agent: dict, skill: dict | None) -> tuple[str, str]:
         """System prompt (role, policies, skill) and the task contract for a worker harness."""
@@ -469,7 +504,7 @@ class Runtime:
         contract = {"task_id": t["task_id"], "objective": t["objective"], "acceptance_criteria": t["acceptance_criteria"],
                     "required_artifacts": {a: [r["key"] for r in rules.get(a, [])] for a in t["required_artifacts"]},
                     "decision_options": t["decision_options"] or None, "budget_usd": t["budget"]["max_cost_usd"],
-                    "attempt": t["attempts"], "inputs": t["inputs"]}
+                    "attempt": t["attempts"], "inputs": t["inputs"], **({"project_goal": self.project["goal"]} if self.project.get("goal") else {})}
         deps = [{"task": d["objective"], "agent": d["assigned_agent"], "summary": (d.get("result") or {}).get("summary"),
                  "artifacts": [self._artifact_view(a) for a in d["evidence"]]} for d in map(self.task, t["dependencies"])]
         visible = self.visible_state(agent)

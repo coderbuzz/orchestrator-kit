@@ -10,10 +10,9 @@ import os
 import sys
 from pathlib import Path
 
-import yaml
 
 from .pack import Pack
-from .runtime import Refused, Runtime, projects
+from .runtime import Refused, Runtime, projects, read_project, write_project
 from .validate import ROOT
 
 PROTOCOL = "2025-06-18"
@@ -36,7 +35,8 @@ def core_tools(pack: Pack, descriptions: dict | None = None) -> dict[str, dict]:
     """The runtime's tools by name. A pack words the descriptions for its own sessions (`descriptions`: name -> text) and orders them."""
     h, H = pack.human_id, pack.human_id.upper()
     d = {"projects": "List the workspace projects with open tasks, approvals waiting and spend today.",
-         "project_init": f"Start running a workspace folder as a project: writes <project>/{pack.project_file}. The folder must already exist.",
+         "project_init": f"Start running a workspace folder as a project: writes <project>/{pack.project_file} with its goal, budget and "
+                         "the team hired from the company catalog (roster). The folder must already exist.",
          "status": "Report for a project: what runs, what is blocked or done, cost, results, risks, decisions needed.",
          "tasks": "List a project's tasks (optionally by status).",
          "task_show": "One task with its result, verification and evidence.",
@@ -51,10 +51,13 @@ def core_tools(pack: Pack, descriptions: dict | None = None) -> dict[str, dict]:
          "usage": "AI spend of a project today and its recent calls.",
          f"{pack.human_prefix}decide": f"{H} ONLY: record the human's decision on a {h} approval. Call only after the human decided it "
                                        "in this conversation; the human confirms the call.",
+         f"{pack.human_prefix}staff": f"{H} ONLY: hire agents from the company catalog onto a project's roster, or release them, after the "
+                                      "human decided it in this conversation; the human confirms the call.",
          **(descriptions or {})}
     return {
         "projects": free("projects", d["projects"]),
-        "project_init": tool("project_init", d["project_init"], {"name": S, "daily_budget_usd": N, "description": S}, ["name", "daily_budget_usd"]),
+        "project_init": tool("project_init", d["project_init"], {"name": S, "daily_budget_usd": N, "description": S, "goal": S, "roster": L},
+                             ["name", "daily_budget_usd"]),
         "status": tool("status", d["status"]),
         "tasks": tool("tasks", d["tasks"], {"status": S}),
         "task_show": tool("task_show", d["task_show"], {"task_id": S}, ["task_id"]),
@@ -73,6 +76,7 @@ def core_tools(pack: Pack, descriptions: dict | None = None) -> dict[str, dict]:
         "usage": tool("usage", d["usage"]),
         f"{pack.human_prefix}decide": tool(f"{pack.human_prefix}decide", d[f"{pack.human_prefix}decide"], {"approval_id": S, "approve": B, "note": S},
                                            ["approval_id", "approve"]),
+        f"{pack.human_prefix}staff": tool(f"{pack.human_prefix}staff", d[f"{pack.human_prefix}staff"], {"hire": L, "release": L}),
     }
 
 
@@ -97,7 +101,8 @@ class Server:
         self.handlers = {"projects": self._projects, "approvals": self._approvals, "project_init": self._project_init, "status": self._status,
                          "tasks": self._tasks, "task_show": self._task_show, "task_add": self._task_add, "task_start": self._task_start,
                          "task_submit": self._task_submit, "task_close": self._task_close, "dispatch": self._dispatch, "review": self._review,
-                         "usage": self._usage, f"{self.pack.human_prefix}decide": self._human_decide, **(handlers or {})}
+                         "usage": self._usage, f"{self.pack.human_prefix}decide": self._human_decide,
+                         f"{self.pack.human_prefix}staff": self._human_staff, **(handlers or {})}
 
     def projects(self) -> dict[str, Path]:
         return projects(self.ws, self.pack.project_file)
@@ -127,11 +132,8 @@ class Server:
                 for p in names for x in self.company(p).store.all("approvals") if x["status"] == "pending"]
 
     def _project_init(self, _, a):
-        d = self.ws / a["project"]
-        if not d.is_dir() or (d / self.pack.project_file).exists():
-            raise Refused(f"{d} must exist and not have a {self.pack.project_file} yet")
-        cfg = {"name": a["name"], "daily_budget_usd": a["daily_budget_usd"], **({"description": a["description"]} if a.get("description") else {})}
-        (d / self.pack.project_file).write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True))
+        cfg = {"name": a["name"], **{k: a[k] for k in ("description", "goal", "roster") if a.get(k)}, "daily_budget_usd": a["daily_budget_usd"]}
+        write_project(self.ws / a["project"], self.pack.root, cfg, new=True)
         return self._summary(a["project"])
 
     def _status(self, _, a):
@@ -181,10 +183,24 @@ class Server:
     def _human_decide(self, _, a):
         return self.company(a["project"]).resolve_approval(a["approval_id"], a["approve"], self.pack.human_id, a.get("note", ""))
 
+    def _human_staff(self, _, a):
+        c = self.company(a["project"])
+        cfg = read_project(c.project_dir, self.pack.root)
+        orchestrators = {i for i, d in c.reg.agents.items() if d["type"] == "orchestrator"}
+        if kept := orchestrators & set(a.get("release") or []):
+            raise Refused(f"the orchestrator stays on every roster: {sorted(kept)}")
+        roster = cfg.get("roster") or sorted(c.reg.enabled_agents - orchestrators)
+        cfg["roster"] = [x for x in roster if x not in (a.get("release") or [])] + [x for x in a.get("hire") or [] if x not in roster]
+        write_project(c.project_dir, self.pack.root, cfg)
+        self.cache.pop(a["project"])
+        c.audit(self.pack.human_id, "roster", f"hire {a.get('hire') or []} release {a.get('release') or []}")
+        return self._summary(a["project"])
+
     def _summary(self, project: str) -> dict:
         c = self.company(project)
         tasks, apr = c.store.all("tasks"), [x for x in c.store.all("approvals") if x["status"] == "pending"]
-        return {"project": project, "name": yaml.safe_load((c.project_dir / self.pack.project_file).read_text())["name"], "path": str(c.project_dir),
+        return {"project": project, "name": c.project["name"], "goal": c.project.get("goal"), "path": str(c.project_dir),
+                "roster": sorted(c.reg.enabled_agents),
                 "open_tasks": sum(t["status"] not in ("COMPLETED", "FAILED", "CANCELLED") for t in tasks),
                 "approvals_waiting": len(apr), f"{self.pack.human_id}_approvals_waiting": sum(x["approver"] == self.pack.human_id for x in apr),
                 "spend_today_usd": round(c.daily_spend(), 4)}
