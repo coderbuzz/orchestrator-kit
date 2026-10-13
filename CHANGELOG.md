@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.6 (2026-10-14)
+- A selection without a provider resolves to the harness's only provider (claude-code: `anthropic`): the route, `price_for` and the usage record carry it. Before, the flat-plan price (`anthropic/*`) was never found, so a claude-code call with a full model id was charged in full against the project budget.
+- claude-code worker calls record tokens (`inputTokens`, `cacheWriteTokens`, `cacheReadTokens`, `outputTokens`) and the equivalent cost is priced from the descriptor tariff; the CLI's `total_cost_usd` is only the fallback for a model without a tariff.
+- The contract guide says an artifact type without its own evidence rule (`other`) needs `evidence.summary` (a worker answer failed `missing evidence 'summary'`; the rule is unchanged).
+
 ## 0.7.5 (2026-10-14)
 - `task_start` runs a claude-code task whose model is a full model id (e.g. `claude-haiku-5-5`) on the worker path (`claude -p --model <id>`): the session's Agent tool accepts only the aliases opus/sonnet/haiku, and an alias follows whatever the Claude Code version maps it to (haiku resolved to Haiku 4.5).
 
