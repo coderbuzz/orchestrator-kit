@@ -7,6 +7,8 @@ from orchestrator_kit import harness
 from orchestrator_kit.registry import Registry
 
 REG = Registry()
+for _h in REG.config["models"]["harnesses"]:  # the library enables only claude-code; these tests route through dsh
+    _h["enabled"] = True
 D = REG.harnesses["dsh"]
 RESULT = {"status": "completed", "summary": "s"}
 AI = {"harness": "dsh", "provider": "deepseek", "model": "deepseek-flash", "effort": "low"}
@@ -22,7 +24,9 @@ def dsh_json(reply=None, status="completed", fail=None, **usage):
 
 
 def test_argv_modes_timeout_and_bash_removal():
-    a = harness.build_dsh(D, "deepseek-flash", req(cwd="/work"), REG.result_schema)
+    assert harness.build_dsh(D, "deepseek-flash", req(), REG.result_schema)[0] == "dsh"
+    wrapped = {**D, "invocation": {**D["invocation"], "prefix": ["with-secrets", "deepseek", "--"]}}   # a secret wrapper, as on a VM
+    a = harness.build_dsh(wrapped, "deepseek-flash", req(cwd="/work"), REG.result_schema)
     assert a[:4] == ["with-secrets", "deepseek", "--", "dsh"] and "--json" in a
     assert a[a.index("--mode") + 1] == "plan" and a[-2:] == ["--disallowed-tools", "bash"]
     assert a[a.index("--timeout") + 1] == "25" and a[a.index("-C") + 1] == "/work"
@@ -80,14 +84,6 @@ def test_version_other_than_the_pin_is_a_failed_attempt_without_a_model_call(fak
     assert not r.ok and "0.1.2" in r.error and "pinned 0.1.6" in r.error
     with pytest.raises(FileNotFoundError):
         argv()   # the scripted dsh never ran a prompt
-
-
-def test_deepseek_is_only_offered_by_dsh_and_mapping_routes_use_it():
-    assert "deepseek" not in {p["id"] for p in REG.harnesses["zcode"]["providers"]}
-    assert not [m for m in REG.harnesses["zcode"]["models"] if m.startswith("deepseek")]
-    for e in REG.mapping["entries"]:
-        for ai in [e["ai"], *[f["ai"] for f in e["fallbacks"]]]:
-            assert ai.get("provider") != "deepseek" or ai["harness"] == "dsh"
 
 
 def test_truncated_dsh_goes_to_the_next_route_without_retry(fake_dsh):

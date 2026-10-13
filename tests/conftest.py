@@ -1,6 +1,7 @@
 """Test doubles live here only. Production code never simulates a harness or an external integration."""
 import http.server
 import json
+import os
 import re
 import subprocess
 import sys
@@ -11,6 +12,8 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# Tests that need "a company" use the role library (a valid pack) unless they pass their own root.
+os.environ.setdefault("ORCHESTRATOR_KIT_PACK", str(Path(__file__).resolve().parent.parent / "orchestrator_kit/library"))
 
 from orchestrator_kit.harness import CallResult  # noqa: E402
 

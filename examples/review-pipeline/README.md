@@ -27,7 +27,7 @@ the reason, then fails after the attempt limit. "Nothing found" is valid: every 
 2. `pack.yaml` `vocabulary` (departments, policy domains), checked by validate; the kit schemas only require kebab-case (G3).
    company-os moved its lists there, so its validation is as strict as before.
 3. `validate`: a pack without `company/state.schema.json` (no shared state) validates (G5).
-4. `orchestrator_kit/hook.py`: a generic stdlib-only guard configured by arguments (company-os keeps `companyos-hook`).
+4. `orchestrator_kit/hook.py`: a generic stdlib-only guard configured by arguments.
 
 ## Gaps of the review (§5) after steps 1-5
 G1 human id, G2 project file and state dir, G7 orchestrator skill, G9 adapters: manifest and pack code (steps 2-3).

@@ -1,7 +1,7 @@
 """MCP server (stdio) exposing a pack's runtime tools to an orchestrator session.
 
 A pack supplies its Runtime class, the ordered tool list (core tools below plus its own), handlers for its own tools, and
-optionally a status report. Projects are folders of COMPANYOS_WORKSPACE (default ~/workspace) holding the pack's project file.
+optionally a status report. Projects are folders of $ORCHESTRATOR_KIT_WORKSPACE (default ~/workspace) holding the pack's project file.
 
 Stdlib only: newline-delimited JSON-RPC 2.0 (MCP stdio transport), tools capability only.
 """

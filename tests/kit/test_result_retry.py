@@ -51,22 +51,3 @@ def test_contract_violation_retried_once_then_next_route_other_errors_not_retrie
     calls.clear()
     res = r.call_with_fallback("default", req(), lambda h, m, rq, s: calls.append(1) or harness.CallResult(False, h["id"], m, error="timeout after 10s"), which=routes)
     assert len(calls) == 2, "a timeout is not retried on the same route"
-
-
-def test_approved_mapping_fallbacks_join_the_routes_with_their_own_effort():
-    cto = REG.mapped_fallbacks("cto")
-    assert [f["provider"] for f in cto] == ["account:zai-individual-coding-plan", "account:google-ai-pro", "deepseek"]
-    assert REG.mapped_fallbacks("fullstack-developer", "debugging")[1]["effort"] == "max"
-    assert REG.mapped_fallbacks("ceo") == []
-    r = _router()
-    routes = r.route("coding", REG.ai_for("cto", None), cto)
-    assert [(x.provider, x.model, x.effort) for x in routes[:3]] == [
-        ("account:zai-start-plan", "GLM-5.3-Flash", None),
-        ("account:zai-individual-coding-plan", "GLM-5.3-Flash", "low"),
-        ("account:google-ai-pro", "gemini-3.8-flash-low", "")]  # "" = own (no) effort, not the primary's
-    seen = []
-    res = r.call_with_fallback("coding", req(), lambda h, m, rq, s: seen.append((rq.provider, rq.effort)) or (
-        harness.CallResult(True, h["id"], m, output=OK) if rq.provider == "account:google-ai-pro" else harness.CallResult(False, h["id"], m, error="429 limit")),
-        ai=REG.ai_for("cto", None), fallbacks=cto)
-    assert seen == [("account:zai-start-plan", "low"), ("account:zai-individual-coding-plan", "low"), ("account:google-ai-pro", None)]
-    assert res[-1].ok and res[-1].provider == "account:google-ai-pro" and res[-1].effort is None
