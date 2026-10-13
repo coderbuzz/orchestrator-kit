@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "company-os/task/1",
+  "$id": "company-os/task/2",
   "title": "Task",
   "type": "object",
   "additionalProperties": false,
@@ -92,13 +92,6 @@
           ],
           "minimum": 0
         },
-        "max_tokens": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "minimum": 0
-        },
         "max_wall_seconds": {
           "type": [
             "integer",
@@ -107,13 +100,6 @@
           "minimum": 0
         }
       }
-    },
-    "deadline": {
-      "type": [
-        "string",
-        "null"
-      ],
-      "format": "date-time"
     },
     "inputs": {
       "type": "object"
@@ -167,18 +153,6 @@
       "type": "string",
       "description": "Agent accountable for the outcome (usually the run owner or a department head)."
     },
-    "workflow_run_id": {
-      "type": [
-        "string",
-        "null"
-      ]
-    },
-    "step_id": {
-      "type": [
-        "string",
-        "null"
-      ]
-    },
     "skill": {
       "type": [
         "string",
@@ -199,12 +173,6 @@
     "max_attempts": {
       "type": "integer",
       "minimum": 1
-    },
-    "tried_agents": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
     },
     "cost_usd": {
       "type": "number",
@@ -241,18 +209,6 @@
         }
       }
     },
-    "verification_mode": {
-      "enum": [
-        "deterministic",
-        "independent"
-      ]
-    },
-    "verifier_agent": {
-      "type": [
-        "string",
-        "null"
-      ]
-    },
     "decision_options": {
       "type": "array",
       "items": {
@@ -265,33 +221,6 @@
         "string",
         "null"
       ]
-    },
-    "kind": {
-      "enum": [
-        "work",
-        "approval_review",
-        "verification",
-        "escalation"
-      ],
-      "description": "work = normal task; others are created by the orchestrator."
-    },
-    "awaiting_task": {
-      "type": [
-        "string",
-        "null"
-      ],
-      "description": "Verification task this task waits for."
-    },
-    "waived": {
-      "type": "boolean",
-      "description": "Failed task explicitly waived by its escalation owner or the Board; dependents may proceed."
-    },
-    "iteration": {
-      "type": "integer",
-      "minimum": 0
-    },
-    "optional": {
-      "type": "boolean"
     },
     "ai": {
       "anyOf": [

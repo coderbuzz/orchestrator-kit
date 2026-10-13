@@ -60,7 +60,7 @@ class FakeHarness:
         tid = re.search(r'"task_id": "([^"]+)"', req.prompt).group(1)
         task = self.orch.store.get("tasks", tid)
         with self.lock:
-            self.calls.append({"task": tid, "agent": task["assigned_agent"], "step": task["step_id"], "kind": task["kind"], "model": model, "harness": hdef["id"],
+            self.calls.append({"task": tid, "agent": task["assigned_agent"], "model": model, "harness": hdef["id"],
                                "provider": req.provider, "effort": req.effort})
             self.active += 1
             self.max_active = max(self.max_active, self.active)
@@ -87,10 +87,6 @@ class FakeHarness:
             out["artifacts"].append({"type": at, "title": at, "content": "body", "evidence": evidence_for(rules, at, req.cwd)})
         if task["decision_options"]:
             out["decision"] = {"selected_option": task["decision_options"][0], "reasoning_summary": "auto", "confidence": 0.7, "parameters": {}}
-        if task["kind"] in ("verification", "approval_review"):
-            out["verdict"] = "PASS"
-        if task["kind"] == "escalation":
-            out["decision"]["selected_option"] = "STOP_RUN"
         return out
 
     def calls_for(self, **kw):

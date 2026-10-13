@@ -52,3 +52,10 @@ def test_lifecycle_matches_schema():
 def test_artifact_type_is_open_but_shaped():
     assert v.validate_instance("artifact", {**ARTIFACT, "type": "claim_check"}) == []
     assert v.validate_instance("artifact", {**ARTIFACT, "type": "Not A Type"})
+
+
+def test_task_2_has_no_loop_leftovers():
+    """task/2 dropped columns only the removed workflow loop used; a record carrying them is rejected."""
+    for old in ("workflow_run_id", "step_id", "kind", "awaiting_task", "iteration", "optional", "tried_agents", "waived", "deadline"):
+        assert v.validate_instance("task", {**TASK, old: None}), old
+    assert v.load(v.schema_file("protocols/tasks/task.schema.json"))["$id"] == "company-os/task/2"

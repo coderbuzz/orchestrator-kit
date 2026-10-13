@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "company-os/harness/1",
+  "$id": "company-os/harness/2",
   "title": "Harness descriptor (file suffix: .harness.yaml)",
   "type": "object",
   "additionalProperties": false,
@@ -27,8 +27,7 @@
     },
     "kind": {
       "enum": [
-        "cli",
-        "api"
+        "cli"
       ]
     },
     "integration_status": {

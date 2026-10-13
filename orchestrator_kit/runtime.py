@@ -186,14 +186,12 @@ class Runtime:
             raise Refused(f"unknown artifact type(s) {unknown}")
         t = {"task_id": new_id("task"), "parent_task_id": parent, "objective": objective, "description": "", "assigned_agent": agent,
              "created_by": by, "owner": by, "priority": "normal", "status": "PENDING", "dependencies": list(after),
-             "budget": {"max_cost_usd": budget_usd if budget_usd is not None else cap, "max_tokens": None, "max_wall_seconds": 1800},
-             "deadline": None, "inputs": inputs or {}, "required_artifacts": required, "acceptance_criteria": list(criteria),
+             "budget": {"max_cost_usd": budget_usd if budget_usd is not None else cap, "max_wall_seconds": 1800},
+             "inputs": inputs or {}, "required_artifacts": required, "acceptance_criteria": list(criteria),
              "approval_level": level, "evidence": [], "result": None, "created_at": now(), "updated_at": now(),
-             "workflow_run_id": None, "step_id": None, "skill": skill, "model_policy": None, "ai": ai, "attempts": 0,
-             "max_attempts": self.reg.policy_params("autonomy-limits").get("max_task_attempts", 2), "tried_agents": [agent],
-             "cost_usd": 0.0, "blocked_reason": None, "verification": None, "verification_mode": "deterministic", "verifier_agent": None,
-             "decision_options": decision_options or [], "approval_id": None, "kind": "work", "awaiting_task": None, "waived": False,
-             "iteration": 0, "optional": False}
+             "skill": skill, "model_policy": None, "ai": ai, "attempts": 0,
+             "max_attempts": self.reg.policy_params("autonomy-limits").get("max_task_attempts", 2),
+             "cost_usd": 0.0, "blocked_reason": None, "verification": None, "decision_options": decision_options or [], "approval_id": None}
         self.store.put("tasks", t)
         self.audit(by, "task add", objective[:300], t)
         return t

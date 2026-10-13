@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0 (2026-10-13)
+Breaking (no stored state existed anywhere, so no migrator):
+- `company-os/task/2`: removed columns of the old workflow loop that nothing read: `workflow_run_id`, `step_id`, `kind`,
+  `awaiting_task`, `iteration`, `optional`, `tried_agents`, `verification_mode`, `verifier_agent`, `waived`, `deadline`,
+  `budget.max_tokens`. A record carrying them no longer validates.
+- `company-os/harness/2`: `kind` is `cli` only (`api` had no builder).
+
 ## 0.1.0 (2026-10-13)
 First release, extracted from qumatic/company-os (history of the kit files kept).
 - Packs: `pack.yaml` manifest (names, project file, state dir, human id and tool prefix, vocabulary, plugin/MCP/hook).
