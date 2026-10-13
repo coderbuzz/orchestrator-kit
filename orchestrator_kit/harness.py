@@ -145,7 +145,7 @@ CONTRACT_GUIDE = """Rules for the JSON object (it is machine-validated; extra or
 - Allowed top-level keys only: status, summary, artifacts, decision, verdict, findings, actions, state_updates, memory_notes, follow_up_tasks, plan, blocked_reason, metrics. Omit every key you do not need.
 - `actions` is ONLY for actions you ask the orchestrator to perform: [{"capability": "<capability id>", "reason": "..."}]. It is not a log of what you did; omit it otherwise.
 - `findings` is a list of plain strings, never objects. `follow_up_tasks`/`plan` items need key (kebab-case), objective, agent, acceptance_criteria (list of strings).
-- Each artifact is {"type", "title", "content" (markdown), "evidence" (object with the keys that artifact type requires)}; the key is `type`, never `kind`.
+- Each artifact is {"type", "title", "content" (markdown), "evidence" (object with the keys that artifact type requires)}; the key is `type`, never `kind`. A type with no rule of its own (e.g. `other`) needs evidence {"summary": "..."}.
 - `decision` (decision tasks only): selected_option (one of the task's decision_options), reasoning_summary, confidence (0-1), and optionally options_considered [{"id", "summary", "pros": [...], "cons": [...]}], impact and risk ("low" | "medium" | "high"), reversibility ("easy" | "costly" | "irreversible"), cost_estimate_usd, parameters (object).
 - `state_updates` is a list of {"section", "op" ("set" | "merge" | "append"), "value"}, never an object; omit it when you change nothing.
 Valid example:
@@ -200,8 +200,15 @@ RETRYABLE = ("no agent-result JSON", "result violates agent-result contract")  #
 BUILDERS = {"claude-code": build_claude, "zcode": build_zcode, "agy": build_agy, "dsh": build_dsh}
 
 
+def default_provider(hdef: dict, provider: str | None) -> str | None:
+    """The selection's provider, or the harness's only provider when it offers one (claude-code: anthropic)."""
+    only = [p["id"] for p in hdef.get("providers") or []]
+    return provider or (only[0] if len(only) == 1 else None)
+
+
 def price_for(hdef: dict, provider: str | None, model: str) -> dict | None:
     """Pricing entry ({in, cache_hit, out} or {flat: true}) of a route, or None when the descriptor has none."""
+    provider = default_provider(hdef, provider)
     table = hdef.get("pricing_usd_per_mtok") or {}
     return table.get(f"{provider}/{model}") or table.get(f"{provider}/*")
 
@@ -268,7 +275,22 @@ def parse_dsh_json(stdout: str) -> tuple[str, dict, str]:
 JSON_PARSERS = {"agy": parse_agy_json, "dsh": parse_dsh_json}  # harnesses whose --json output also carries an error status
 
 
+def claude_usage(d: dict) -> dict:
+    """claude `--output-format json` usage -> zh key names; input includes the cache tokens (as token_cost expects)."""
+    u = d.get("usage") or {}
+    write, read = u.get("cache_creation_input_tokens") or 0, u.get("cache_read_input_tokens") or 0
+    if not (u.get("input_tokens") or write or read or u.get("output_tokens")):
+        return {}
+    return {"inputTokens": (u.get("input_tokens") or 0) + write + read, "cacheWriteTokens": write, "cacheReadTokens": read,
+            "outputTokens": u.get("output_tokens") or 0}
+
+
 def usage_of(harness_id: str, stdout: str) -> dict:
+    if harness_id == "claude-code":
+        try:
+            return claude_usage(json.loads(stdout))
+        except ValueError:
+            return {}
     if harness_id == "zcode":
         return parse_zcode_json(stdout)[1]
     p = JSON_PARSERS.get(harness_id)
@@ -288,7 +310,8 @@ def parse(harness_id: str, stdout: str, price: dict | None = None) -> tuple[dict
             d = json.loads(stdout)
         except ValueError:
             return None, None, "non-JSON output from claude"
-        cost = d.get("total_cost_usd")
+        cost = token_cost(price, claude_usage(d)) if claude_usage(d) else None
+        cost = d.get("total_cost_usd") if cost is None else cost  # no tariff in the descriptor: the CLI's own figure
         if d.get("is_error") or d.get("subtype") != "success":
             return None, cost, f"claude error: {d.get('subtype')} {str(d.get('result'))[:300]}"
         out = d.get("structured_output") or extract_json(d.get("result") or "")
@@ -341,7 +364,7 @@ def invoke(hdef: dict, model: str, req: Request, schema: dict) -> CallResult:
         err = f"exit {p.returncode}: {p.stderr.strip()[-300:] or err}"
     return CallResult(not err, hdef["id"], model, output=output, error=err, cost_usd=cost or 0.0,
                       cost_estimated=cost is None, equivalent_cost_usd=equivalent, duration_s=time.time() - t0, raw=stdout[-4000:],
-                      tokens={k: usage[k] for k in ("inputTokens", "outputTokens", "cacheReadTokens", "reasoningTokens") if k in usage})
+                      tokens={k: usage[k] for k in ("inputTokens", "outputTokens", "cacheWriteTokens", "cacheReadTokens", "reasoningTokens") if k in usage})
 
 
 class Router:
@@ -379,7 +402,7 @@ class Router:
                 continue  # inactive provider: the Board marks it in config (e.g. a plan whose promo ended); never tried
             if self.check_installed and not shutil.which(hdef["invocation"]["command"]):
                 continue
-            out.append(Route(hdef, c["model"], hcfg, c.get("provider"), c.get("effort")))
+            out.append(Route(hdef, c["model"], hcfg, default_provider(hdef, c.get("provider")), c.get("effort")))
         return out
 
     def _record(self, harness_id: str, ok: bool):

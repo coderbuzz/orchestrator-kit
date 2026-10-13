@@ -62,3 +62,24 @@ def test_router_keeps_estimate_for_unpriced_and_tokens_in_result():
                                lambda h, m, rq, s: harness.CallResult(True, h["id"], m, output=RESULT, cost_estimated=True, tokens={"inputTokens": 9}),
                                which=r.route("default")[:1])
     assert res[0].tokens == {"inputTokens": 9}
+
+
+CLAUDE_OUT = json.dumps({"subtype": "success", "is_error": False, "total_cost_usd": 0.0024, "structured_output": RESULT,
+                         "usage": {"input_tokens": 2, "cache_creation_input_tokens": 19166, "cache_read_input_tokens": 11082, "output_tokens": 182}})
+
+
+def test_claude_code_default_provider_is_flat_priced_from_tokens():
+    C = {**REG.harnesses["claude-code"], "pricing_usd_per_mtok": {"anthropic/claude-haiku-5-5": {"flat": True, "in": 0.10, "cache_write": 0.125, "cache_hit": 0.01, "out": 0.50}}}
+    price = harness.price_for(C, None, "claude-haiku-5-5")  # no provider on the selection: the harness's only provider
+    assert price and price.get("flat")
+    out, listed, err = harness.parse("claude-code", CLAUDE_OUT, price)
+    u = harness.usage_of("claude-code", CLAUDE_OUT)
+    assert u == {"inputTokens": 2 + 19166 + 11082, "cacheWriteTokens": 19166, "cacheReadTokens": 11082, "outputTokens": 182}
+    assert listed == harness.token_cost(price, u) and listed != 0.0024, "equivalent comes from tokens x descriptor tariff, not the CLI figure"
+    assert harness.billing(price, listed) == (0.0, listed)
+
+
+def test_router_records_the_default_provider():
+    r = harness.Router(REG, {}, check_installed=False)
+    rt = r.route("default", {"harness": "claude-code", "model": "claude-haiku-5-5"})[0]
+    assert rt.provider == "anthropic"
