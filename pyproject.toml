@@ -1,9 +1,15 @@
 [project]
 name = "orchestrator-kit"
 version = "0.2.0"
-description = "Run an AI organization from definitions in Git: company catalog, project rosters, harness routing, guardrails, plugin generator"
+description = "Multi-agent orchestrator for Claude Code: an AI organization defined in Git, generated as a Claude Code plugin with guardrails"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+keywords = ["claude-code", "multi-agent", "orchestrator", "agents", "mcp"]
 requires-python = ">=3.11"
 dependencies = ["pyyaml>=6", "jsonschema>=4.18"]
+
+[project.urls]
+Repository = "https://github.com/coderbuzz/orchestrator-kit"
 
 [project.scripts]
 orchestrator-kit = "orchestrator_kit.cli:main"
