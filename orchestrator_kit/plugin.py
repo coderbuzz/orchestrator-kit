@@ -100,7 +100,7 @@ class Generator:
             f"decides (`{p.human_prefix}staff`). A role the company lacks is added to the company repository first "
             "(`orchestrator-kit hire <role>`, a reviewed change), never invented in a task.",
             f"## Doing work\nEach task: `task_add` -> `task_start` -> the subagent it names (scoped `{p.name}:<name>`) does it with the "
-            "returned prompt -> `task_submit` with its JSON. Use `dispatch` when the task needs another harness or a model the subagent "
+            "returned prompt -> `task_submit` with its JSON and its `usage` (model, total_tokens, tool_uses, duration_ms from the Agent result). Use `dispatch` when the task needs another harness or a model the subagent "
             f"cannot take. Approvals: `approvals`; the {h}'s own decisions go through `{p.human_prefix}decide` only after the {h} decided.",
             "## Tools\n" + tools,
             "## Your team (subagents)\n" + "\n".join(f"- {k}: {v['description']}" for k, v in sorted(subagents.items())),
