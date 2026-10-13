@@ -10,11 +10,14 @@ what a template cannot express (tool lists, modes). Adding a harness = descripto
 """
 import functools
 import json
+import os
 import re
 import shutil
+import signal
 import subprocess
 import tempfile
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from .registry import Registry
@@ -31,6 +34,7 @@ class Request:
     timeout_seconds: int
     provider: str | None = None
     effort: str | None = None
+    on_progress: Callable[[dict], None] | None = None  # called every PROGRESS_SECONDS while the worker runs
 
 
 @dataclass
@@ -336,6 +340,63 @@ def installed_version(command: str) -> str:
     return m.group(0) if m else ""
 
 
+PROGRESS_SECONDS = 30
+STALL_SECONDS = 300  # no CPU used by the worker's process tree for this long: reported as `stalled`, never killed
+
+
+def _tree_cpu(sid: int) -> tuple[int, int]:
+    """(processes, cpu clock ticks) of every process in session `sid` (the worker and what it spawned, e.g. wrangler/pnpm)."""
+    n = ticks = 0
+    for d in os.listdir("/proc"):
+        try:
+            f = open(f"/proc/{d}/stat").read().rsplit(")", 1)[1].split()  # state ppid pgrp session ... utime(12) stime(13)
+            if int(f[3]) == sid and f[0] != "Z":
+                n, ticks = n + 1, ticks + int(f[11]) + int(f[12])
+        except (OSError, IndexError, ValueError):
+            continue
+    return n, ticks
+
+
+def _kill_tree(p: subprocess.Popen):
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(p.pid, sig)
+        except ProcessLookupError:
+            return
+        try:
+            p.wait(5)
+            return
+        except subprocess.TimeoutExpired:
+            continue
+
+
+def run_worker(argv, req: Request, out, errf, poll: float = 1.0) -> int:
+    """Run the worker in its own session so the wall limit kills its whole process tree (subprocess.run's timeout killed
+    only the direct child and then hung while a grandchild held the stderr pipe). While it runs, `req.on_progress` gets
+    elapsed seconds, stdout bytes, process count and whether the tree has used no CPU for STALL_SECONDS. Raises TimeoutExpired."""
+    p = subprocess.Popen(argv, cwd=req.cwd, stdout=out, stderr=errf, text=True, stdin=subprocess.DEVNULL, start_new_session=True)
+    t0 = last_tick = last_cpu = time.time()
+    ticks = -1
+    while True:
+        try:
+            return p.wait(poll)
+        except subprocess.TimeoutExpired:
+            pass
+        now = time.time()
+        if now - t0 >= req.timeout_seconds:
+            _kill_tree(p)
+            raise subprocess.TimeoutExpired(argv, req.timeout_seconds)
+        if now - last_tick >= PROGRESS_SECONDS:
+            last_tick = now
+            n, t = _tree_cpu(p.pid)
+            if t != ticks:
+                ticks, last_cpu = t, now
+            if req.on_progress:
+                out.flush()
+                req.on_progress({"elapsed_s": int(now - t0), "limit_s": req.timeout_seconds, "output_bytes": os.fstat(out.fileno()).st_size,
+                                 "processes": n, "idle_cpu_s": int(now - last_cpu), "stalled": now - last_cpu >= STALL_SECONDS})
+
+
 def invoke(hdef: dict, model: str, req: Request, schema: dict) -> CallResult:
     """Real subprocess call. Tests inject a different callable with the same signature."""
     builder = BUILDERS.get(hdef["id"])
@@ -346,22 +407,23 @@ def invoke(hdef: dict, model: str, req: Request, schema: dict) -> CallResult:
         return CallResult(False, hdef["id"], model, error=f"{hdef['id']} version {v or 'unknown'} does not match the pinned {pin}")
     argv = builder(hdef, model, req, schema) + selection_args(hdef, model, req)
     t0 = time.time()
-    with tempfile.TemporaryFile("w+") as out:
+    with tempfile.TemporaryFile("w+") as out, tempfile.TemporaryFile("w+") as errf:
         try:
-            p = subprocess.run(argv, cwd=req.cwd, stdout=out, stderr=subprocess.PIPE, text=True,
-                               timeout=req.timeout_seconds, stdin=subprocess.DEVNULL)
+            returncode = run_worker(argv, req, out, errf)
         except subprocess.TimeoutExpired:
-            return CallResult(False, hdef["id"], model, error=f"timeout after {req.timeout_seconds}s", duration_s=time.time() - t0)
+            return CallResult(False, hdef["id"], model, error=f"timeout after {req.timeout_seconds}s (worker process group killed)", duration_s=time.time() - t0)
         except OSError as e:
             return CallResult(False, hdef["id"], model, error=f"cannot start harness: {e}")
         out.seek(0)
         stdout = out.read()
+        errf.seek(0)
+        stderr = errf.read()
     price = price_for(hdef, req.provider, model)
     output, listed, err = parse(hdef["id"], stdout, price)
     cost, equivalent = billing(price, listed)
     usage = usage_of(hdef["id"], stdout)
-    if p.returncode != 0 and (not err or not stdout.strip()):
-        err = f"exit {p.returncode}: {p.stderr.strip()[-300:] or err}"
+    if returncode != 0 and (not err or not stdout.strip()):
+        err = f"exit {returncode}: {stderr.strip()[-300:] or err}"
     return CallResult(not err, hdef["id"], model, output=output, error=err, cost_usd=cost or 0.0,
                       cost_estimated=cost is None, equivalent_cost_usd=equivalent, duration_s=time.time() - t0, raw=stdout[-4000:],
                       tokens={k: usage[k] for k in ("inputTokens", "outputTokens", "cacheWriteTokens", "cacheReadTokens", "reasoningTokens") if k in usage})

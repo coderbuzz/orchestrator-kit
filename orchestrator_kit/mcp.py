@@ -102,6 +102,7 @@ class Server:
 
     def __init__(self, ws: Path | None = None, *, runtime=Runtime, tools=(), handlers=None, report=default_report, **runtime_kw):
         self.ws, self.kw, self.cache = Path(ws or workspace()), runtime_kw, {}
+        self.token = None  # progressToken of the tools/call being handled
         self.pack = Pack.load(runtime_kw.get("root") or ROOT)
         self.runtime, self.tools, self.report = runtime, list(tools), report
         self.handlers = {"projects": self._projects, "approvals": self._approvals, "project_init": self._project_init, "status": self._status,
@@ -189,7 +190,22 @@ class Server:
         return (c.cancel if a["outcome"] == "cancel" else c.fail)(a["task_id"], a["why"])["status"]
 
     def _dispatch(self, _, a):
-        return self.company(a["project"]).dispatch(a["task_id"])
+        c = self.company(a["project"])
+        c.on_progress = self._progress
+        try:
+            return c.dispatch(a["task_id"])
+        finally:
+            c.on_progress = None
+
+    def _progress(self, info: dict):
+        """MCP notifications/progress for the running tools/call: keeps the client's idle timeout from firing and shows the human the worker is alive."""
+        if self.token is None:
+            return
+        msg = (f"worker alive {info['elapsed_s']}s of {info['limit_s']}s; output {info['output_bytes']} B; {info['processes']} process(es)"
+               + (f"; STALLED: no CPU for {info['idle_cpu_s']}s (still running, not killed)" if info["stalled"] else ""))
+        sys.stdout.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/progress",
+                                     "params": {"progressToken": self.token, "progress": info["elapsed_s"], "total": info["limit_s"], "message": msg}}) + "\n")
+        sys.stdout.flush()
 
     def _review(self, _, a):
         if a["as_agent"] == self.pack.human_id:
@@ -238,6 +254,7 @@ class Server:
         elif method == "tools/list":
             res = {"tools": self.tools}
         elif method == "tools/call":
+            self.token = (params.get("_meta") or {}).get("progressToken")
             try:
                 out, err = self.call(params["name"], params.get("arguments") or {}), False
             except Refused as e:

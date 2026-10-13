@@ -109,6 +109,7 @@ class Runtime:
         self.policy = self.policy_class(self.reg, set(adapters or {}))
         self.router = harness.Router(self.reg, self.store.get("runtime", "health") or {}, check_installed=invoke is None)
         self.invoke = invoke or harness.invoke
+        self.on_progress = None  # set by the MCP server around a dispatch: fn(dict) with the worker's liveness
         self.init_state()
 
     # ------------------------------------------------------------------ pack hooks (defaults: no shared state, no extras)
@@ -492,7 +493,7 @@ class Runtime:
         caps = [c for c in agent["tools"] if self.reg.capabilities[c].get("adapter") == "harness"]
         budget = t["budget"]["max_cost_usd"]
         req = harness.Request(system, prompt, str(self._workspace(t)), caps, max(budget, 0.01) if budget is not None else None,
-                              t["budget"]["max_wall_seconds"] or 1800)
+                              t["budget"]["max_wall_seconds"] or 1800, on_progress=self.on_progress)
         ai = self.reg.ai_for(agent["id"], skill, t.get("ai"))
         policy_id = self.reg.model_policy_for(agent["id"], skill, t.get("model_policy"))
         try:
