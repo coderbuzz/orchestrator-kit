@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.3 (2026-10-13)
 - `config.models.harnesses[].inactive_providers`: provider ids the Board switched off. `Router.route` skips routes naming them
   (no call, no failed attempt), so the next route of the mapping is tried first.
 
