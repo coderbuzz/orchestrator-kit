@@ -1,0 +1,6 @@
+version: 1.0.0
+capabilities:
+  - {id: read_repository, description: "Read files and git history in the task workspace.", risk: read, min_approval_level: 0, adapter: harness}
+  - {id: run_tests, description: "Run the repository's tests in the task workspace.", risk: read, min_approval_level: 0, adapter: harness}
+  - {id: create_task, description: "Propose follow-up review tasks.", risk: write, min_approval_level: 0, adapter: internal}
+  - {id: post_pr_comment, description: "Post the review as a pull request comment (gh pr comment).", risk: external, min_approval_level: 1, adapter: internal}

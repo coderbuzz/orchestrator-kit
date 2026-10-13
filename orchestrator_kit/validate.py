@@ -140,8 +140,11 @@ def check(root: Path | None = None) -> list[str]:
     def need(path, what, vals, known):
         errs.extend(f"{path.relative_to(root)}: unknown {what} '{v}'" for v in vals if v not in known)
 
-    human = Pack.load(root).human_id
+    pack = Pack.load(root)
+    human, vocab = pack.human_id, pack.vocabulary
     for path, a in found.get(".agent.yaml", []):
+        if "departments" in vocab:
+            need(path, "department", [a["department"]], vocab["departments"])
         need(path, "skill", [s["id"] for s in a["skills"]], skills)
         need(path, "tool/capability", a["tools"], caps)
         need(path, "policy", [p["id"] for p in a["policies"]], policies)
@@ -154,6 +157,8 @@ def check(root: Path | None = None) -> list[str]:
     for path, s in found.get(".skill.yaml", []):
         need(path, "capability", s["required_capabilities"], caps)
     for path, p in found.get(".policy.yaml", []):
+        if "policy_domains" in vocab:
+            need(path, "policy domain", [p["domain"]], vocab["policy_domains"])
         if path.parent.name != p["domain"]:
             errs.append(f"{path.relative_to(root)}: domain '{p['domain']}' != directory '{path.parent.name}'")
     for path, m in found.get(".model-policy.yaml", []):
@@ -178,8 +183,9 @@ def _semantic_checks(found, root: Path) -> list[str]:
     except Exception as e:  # noqa: BLE001
         return [f"registry: {e}"]
     rel = lambda p: p.relative_to(root)  # noqa: E731
-    sections = set(load(schema_file("company/state.schema.json", root))["properties"])
-    depts = set(load(schema_file("agents/agent.schema.json", root))["properties"]["department"]["enum"])
+    state = schema_file("company/state.schema.json", root)  # optional: a pack without shared state allows no company/<section> scope
+    sections = set(load(state)["properties"]) if state.exists() else set()
+    depts = set(reg.pack.vocabulary.get("departments") or [a["department"] for a in reg.agents.values()])
     art_types = set(reg.evidence_rules["types"])
     for path, a in found.get(".agent.yaml", []):
         for ref in a["skills"]:

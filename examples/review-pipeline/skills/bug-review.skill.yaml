@@ -1,0 +1,17 @@
+id: bug-review
+name: Bug review
+description: "Find correctness defects in a change, each tied to a changed line."
+version: 1.0.0
+purpose: "Find correctness defects in a change, each tied to a changed line."
+inputs: [the diff range in the task workspace (inputs.diff_base..HEAD), the acceptance criteria]
+outputs: [review_scope]
+preconditions: [The change exists in the workspace repository]
+procedure:
+  - "Read the change: git diff <diff_base>..HEAD."
+  - "Check each changed line against the acceptance criteria, edge cases and error paths; quote the exact changed line as evidence_excerpt."
+  - "Return one review_scope artifact (diff_base, files_reviewed) and one review_finding artifact per problem; no finding is a valid outcome."
+validation:
+  - "review_scope and review_finding evidence carry every key listed in the task contract"
+failure_modes:
+  - {mode: Change not found, handling: "Return status blocked naming the missing commit or branch."}
+required_capabilities: [read_repository]

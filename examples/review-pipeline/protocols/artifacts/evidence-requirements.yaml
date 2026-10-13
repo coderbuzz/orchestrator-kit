@@ -1,0 +1,10 @@
+# Evidence per artifact type (orchestrator_kit/verify.py). special file_line_in_diff is this pack's check (review_pipeline.py).
+version: 1.0.0
+default: [{key: summary, check: string}]
+types:
+  review_scope:        [{key: diff_base, check: string}, {key: files_reviewed, check: list, min_items: 1}]
+  review_finding:      [{key: file, check: string}, {key: line, check: int, min: 1}, {key: severity, check: string}, {key: diff_base, check: string}, {key: evidence_excerpt, check: string, special: file_line_in_diff}]
+  verification_report: [{key: verdict, check: string}, {key: checked, check: list, min_items: 1}]
+  review_summary:      [{key: verdict, check: string}, {key: findings, check: list}]
+  pr_comment:          [{key: url, check: string}]
+  other:               [{key: summary, check: string}]

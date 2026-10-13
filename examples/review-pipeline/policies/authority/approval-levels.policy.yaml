@@ -1,0 +1,10 @@
+id: approval-levels
+name: Approval levels
+version: 1.0.0
+domain: authority
+description: Who approves what. Anything that leaves the repository (a PR comment) is approved by the maintainer.
+rules:
+  - {id: no-self-escalation, statement: "An agent may not approve above its max_approval_level, and never its own request.", enforcement: deterministic}
+  - {id: external-needs-maintainer, statement: "post_pr_comment needs level 1; no agent here holds level 1, so the maintainer decides.", enforcement: deterministic}
+parameters:
+  thresholds: null

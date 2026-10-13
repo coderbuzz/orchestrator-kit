@@ -1,0 +1,1 @@
+enabled: [review-lead, security-reviewer, bug-reviewer, simplicity-reviewer, verifier]

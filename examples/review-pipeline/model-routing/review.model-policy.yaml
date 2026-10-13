@@ -1,0 +1,6 @@
+id: review
+name: Routine review (cheap first)
+version: 1.0.0
+candidates:
+  - {harness: claude-code, model: haiku, provider: anthropic}
+  - {harness: claude-code, model: sonnet, provider: anthropic}

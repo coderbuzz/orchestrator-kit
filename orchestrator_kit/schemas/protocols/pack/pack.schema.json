@@ -19,6 +19,9 @@
     "mcp": {"type": "object", "additionalProperties": false, "required": ["command", "instructions"],
       "properties": {"command": {"type": "string"}, "instructions": {"type": "string"}}},
     "hook": {"type": "object", "additionalProperties": false, "required": ["command", "description"],
-      "properties": {"command": {"type": "string"}, "description": {"type": "string"}}}
+      "properties": {"command": {"type": "string"}, "description": {"type": "string"}}},
+    "vocabulary": {"type": "object", "additionalProperties": false, "description": "Closed word lists of this pack; validate checks definitions against them. Omitted = any kebab-case word.",
+      "properties": {"departments": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+                     "policy_domains": {"type": "array", "items": {"type": "string"}, "minItems": 1}}}
   }
 }

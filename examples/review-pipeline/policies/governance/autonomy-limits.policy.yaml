@@ -1,0 +1,9 @@
+id: autonomy-limits
+name: Autonomy limits
+version: 1.0.0
+domain: governance
+description: Nothing retries forever.
+rules:
+  - {id: bounded-retries, statement: "A task is attempted at most max_task_attempts times.", enforcement: deterministic}
+parameters:
+  max_task_attempts: 2

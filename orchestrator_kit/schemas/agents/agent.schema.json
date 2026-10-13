@@ -247,20 +247,9 @@
       }
     },
     "department": {
-      "enum": [
-        "executive",
-        "engineering",
-        "product",
-        "finance",
-        "operations",
-        "marketing",
-        "sales",
-        "customer",
-        "research",
-        "data",
-        "legal"
-      ],
-      "description": "Department memory scope (department/<dept>)."
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "Department memory scope (department/<dept>); pack.yaml vocabulary.departments lists the allowed ones."
     },
     "max_concurrent_tasks": {
       "type": "integer",

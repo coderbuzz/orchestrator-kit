@@ -1,0 +1,4 @@
+harnesses:
+  - {id: claude-code, enabled: true, default_model: sonnet, timeout_seconds: 1800}
+default_model_policy: review
+fallback: {max_candidates_per_attempt: 2, circuit_breaker_failures: 3, circuit_breaker_seconds: 600}

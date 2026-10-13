@@ -39,6 +39,7 @@ def projects(workspace: Path, project_file: str) -> dict[str, Path]:
 class Runtime:
     policy_class = Policy
     builtin_adapters: dict = {}  # capability -> adapter fn the pack always has (internal adapters)
+    evidence_checks: dict = {}   # special check name -> fn, beyond verify.CHECKS (see verify.py)
     actor = "orchestrator"  # default `by` of tasks and decisions a session makes; a pack names its orchestrator agent
 
     @classmethod
@@ -252,7 +253,7 @@ class Runtime:
             return {"status": "FAILED", "notes": [failed]}
         arts = [self.store.get("artifacts", a) for a in self._artifact_ids(t)]
         known = {a["artifact_id"] for a in self.store.all("artifacts")}
-        verdict, notes = verify.verify_task(self.reg.evidence_rules, t, arts, res, self._workspace(t), known)
+        verdict, notes = verify.verify_task(self.reg.evidence_rules, t, arts, res, self._workspace(t), known, self.evidence_checks)
         t["verification"] = {"verdict": verdict, "notes": notes[:20], "verifier": "deterministic"}
         self.store.put("tasks", t)
         if verdict == "FAIL":

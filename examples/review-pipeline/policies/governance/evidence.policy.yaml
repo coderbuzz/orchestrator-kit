@@ -1,0 +1,7 @@
+id: evidence
+name: Evidence
+version: 1.0.0
+domain: governance
+description: A finding is real only if it points at a changed line that says what the reviewer quotes.
+rules:
+  - {id: finding-in-diff, statement: "Every review_finding names a file and line inside the reviewed diff and quotes that line (special check file_line_in_diff).", enforcement: deterministic}

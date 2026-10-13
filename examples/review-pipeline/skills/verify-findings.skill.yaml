@@ -1,0 +1,17 @@
+id: verify-findings
+name: Verify findings
+description: "Independently confirm reviewers' findings before they reach the maintainer."
+version: 1.0.0
+purpose: "Independently confirm reviewers' findings before they reach the maintainer."
+inputs: [the diff range in the task workspace (inputs.diff_base..HEAD), the acceptance criteria]
+outputs: [verification_report]
+preconditions: [The change exists in the workspace repository]
+procedure:
+  - "Read the change: git diff <diff_base>..HEAD."
+  - "Open each finding's file and line at HEAD, confirm the problem is real, and list each checked finding with its verdict in checked."
+  - "Return one verification_report artifact per item with its evidence keys; return none when there is nothing to report and say so in the summary."
+validation:
+  - "verification_report evidence carries every key listed in the task contract"
+failure_modes:
+  - {mode: Change not found, handling: "Return status blocked naming the missing commit or branch."}
+required_capabilities: [read_repository]

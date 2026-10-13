@@ -1,0 +1,22 @@
+# Example pack: multi-agent code review (lead -> security/bug/simplicity reviewers -> verifier -> synthesis -> PR comment).
+# It exists to prove the kit boundary: nothing here is QUMATIC-specific and the kit has no code for it.
+name: review-pipeline
+server: review
+project_file: review.yaml       # <workspace>/<project>/review.yaml marks a review project (one PR or repo)
+state_dir: .review
+human: {id: maintainer, tool_prefix: maintainer_}
+preamble: agents/preamble.md
+def_keys: [id, name, role, mission, responsibilities, non_responsibilities, authority, success_criteria]
+plugin:
+  version: 0.1.0
+  author: example
+  description: "Multi-agent code review: a lead session, specialist reviewers, evidence-checked findings, PR comments the maintainer approves."
+mcp:
+  command: review-pipeline-mcp  # the pack's own entry point (review_pipeline.main); not installed by this repo
+  instructions: "Code review tools. The review-lead skill describes how to use them."
+hook:
+  command: "python -m orchestrator_kit.hook .review maintainer_"
+  description: "maintainer_* tools always ask the human; review state is off-limits to the shell and edit tools."
+vocabulary:
+  departments: [review]
+  policy_domains: [authority, finance, governance]

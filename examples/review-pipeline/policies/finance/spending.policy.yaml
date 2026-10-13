@@ -1,0 +1,10 @@
+id: spending
+name: Spending
+version: 1.0.0
+domain: finance
+description: Budget limits per review task and per day.
+rules:
+  - {id: budget-checked, statement: "A task whose cost reaches its budget is not retried.", enforcement: deterministic}
+parameters:
+  max_cost_usd_per_task: null
+  max_cost_usd_per_day: null

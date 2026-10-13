@@ -1,0 +1,5 @@
+id: security
+name: Security review (strongest model)
+version: 1.0.0
+candidates:
+  - {harness: claude-code, model: opus, provider: anthropic}

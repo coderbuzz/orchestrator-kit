@@ -1,0 +1,20 @@
+id: claude-code
+name: Claude Code CLI
+version: 2.1.0
+kind: cli
+integration_status: implemented
+verified_with: "copied from company-os (claude 2.1.289); example data, not re-verified"
+invocation:
+  command: claude
+  non_interactive_args: ["-p", "{prompt}", "--output-format", "json", "--append-system-prompt", "{system_prompt}", "--safe-mode", "--no-session-persistence", "--permission-mode", "dontAsk", "--tools", "{tools}", "--allowedTools", "{tools}", "--max-budget-usd", "{max_budget_usd}", "--json-schema", "{result_schema}"]
+  model_args: ["--model", "{model}"]
+  effort_args: ["--effort", "{effort}"]
+  notes: "--safe-mode keeps machine-local CLAUDE.md/skills/hooks/MCP out of company work (portability). --tools limits built-in tools to the agent's capabilities; dontAsk denies anything else. --max-budget-usd enforces the task budget inside the harness."
+models: [opus, sonnet, haiku]
+efforts: [low, medium, high, xhigh, max]   # claude --help 2.1.293: --effort low|medium|high|xhigh|max
+cost_reporting: exact
+capability_tools:
+  read_repository: [Read, Grep, Glob]
+  run_tests: [Bash]
+providers:
+  - {id: anthropic, auth_env: []}

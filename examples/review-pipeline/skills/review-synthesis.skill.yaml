@@ -1,0 +1,17 @@
+id: review-synthesis
+name: Review synthesis
+description: "Merge verified findings into one review and propose the PR comment."
+version: 1.0.0
+purpose: "Merge verified findings into one review and propose the PR comment."
+inputs: [the diff range in the task workspace (inputs.diff_base..HEAD), the acceptance criteria]
+outputs: [review_summary]
+preconditions: [The change exists in the workspace repository]
+procedure:
+  - "Read the change: git diff <diff_base>..HEAD."
+  - "Merge the dependencies' findings, drop duplicates, rank by severity, set verdict (approve or changes_requested), and propose a post_pr_comment action with the review as body."
+  - "Return one review_summary artifact per item with its evidence keys; return none when there is nothing to report and say so in the summary."
+validation:
+  - "review_summary evidence carries every key listed in the task contract"
+failure_modes:
+  - {mode: Change not found, handling: "Return status blocked naming the missing commit or branch."}
+required_capabilities: [read_repository, post_pr_comment]

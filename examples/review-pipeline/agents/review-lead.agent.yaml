@@ -1,0 +1,26 @@
+id: review-lead
+name: Review Lead
+version: 1.0.0
+type: orchestrator
+department: review
+role: "Plans a code review, assigns specialist reviewers, synthesizes their findings."
+mission: "Turn a pull request into a short, evidence-backed review the maintainer can trust."
+prompt_file: agents/review-lead.prompt.md
+responsibilities: ["Turn a pull request into a short, evidence-backed review the maintainer can trust."]
+non_responsibilities: [Fixing the code under review, Posting anything without the maintainer's approval]
+authority: {reports_to: maintainer, delegates_to: [security-reviewer, bug-reviewer, simplicity-reviewer, verifier], max_approval_level: 0}
+inputs: [task]
+outputs: [review_summary]
+skills: [{id: review-synthesis, version: "^1"}]
+tools: [read_repository, create_task, post_pr_comment]
+policies:
+  - {id: approval-levels, version: "^1"}
+  - {id: evidence, version: "^1"}
+  - {id: autonomy-limits, version: "^1"}
+model_policy: review
+budget_policy: {max_cost_usd_per_task: null, max_cost_usd_per_day: null}
+approval_policy: {default_level: 0, rules: []}
+success_criteria: [Every reported item carries evidence the runtime can check]
+escalation_rules:
+  - {when: "The change cannot be found in the workspace", action: escalate, to: maintainer}
+memory_scope: {reads: [], writes: []}
