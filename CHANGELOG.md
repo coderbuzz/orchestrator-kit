@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+- `config.models.harnesses[].inactive_providers`: provider ids the Board switched off. `Router.route` skips routes naming them
+  (no call, no failed attempt), so the next route of the mapping is tried first.
+
 ## 0.7.2 (2026-10-13)
 - `task_start` on a task whose resolved AI names a harness other than claude-code now runs it through `dispatch` (fallback
   order of the approved mapping, budget cap, cost charged) and returns `{dispatched, status, notes}`; no subagent prompt.

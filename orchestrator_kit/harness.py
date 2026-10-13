@@ -375,8 +375,8 @@ class Router:
         out = []
         for c in cands:
             hdef, hcfg = self.reg.harnesses.get(c["harness"]), enabled.get(c["harness"])
-            if not hdef or not hcfg or self._breaker_open(c["harness"]):
-                continue
+            if not hdef or not hcfg or self._breaker_open(c["harness"]) or c.get("provider") in hcfg.get("inactive_providers", ()):
+                continue  # inactive provider: the Board marks it in config (e.g. a plan whose promo ended); never tried
             if self.check_installed and not shutil.which(hdef["invocation"]["command"]):
                 continue
             out.append(Route(hdef, c["model"], hcfg, c.get("provider"), c.get("effort")))

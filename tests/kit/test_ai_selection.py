@@ -91,3 +91,15 @@ def test_claude_gets_a_self_contained_result_schema():
     ok = {"status": "completed", "summary": "s", "artifacts": [], "plan": [plan_item]}
     assert not list(Draft202012Validator(schema).iter_errors(ok))
     assert list(Draft202012Validator(schema).iter_errors({**ok, "plan": [{**plan_item, "ai": {"effort": "huge"}}]})), "the inlined AI schema still applies"
+
+
+def test_inactive_provider_is_skipped_without_a_call():
+    reg = copy.copy(REG)
+    reg.config = copy.deepcopy(REG.config)
+    for h in reg.config["models"]["harnesses"]:
+        if h["id"] == "zcode":
+            h.update(enabled=True, inactive_providers=["account:zai-start-plan"])
+    fb = [{"harness": "zcode", "provider": "account:zai-individual-coding-plan", "model": "GLM-5.3-Flash"}]
+    ai = {"harness": "zcode", "provider": "account:zai-start-plan", "model": "GLM-5.3-Flash"}
+    routes = harness.Router(reg, {}, check_installed=False).route("default", ai, fb)
+    assert routes[0].provider == "account:zai-individual-coding-plan" and all(r.provider != "account:zai-start-plan" for r in routes)

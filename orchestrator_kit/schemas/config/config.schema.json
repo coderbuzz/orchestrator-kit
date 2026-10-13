@@ -95,6 +95,11 @@
               "timeout_seconds": {
                 "type": "integer",
                 "minimum": 30
+              },
+              "inactive_providers": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Provider ids of this harness that are switched off by the Board: routes naming them are skipped, the next route is used."
               }
             }
           }
