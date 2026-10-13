@@ -249,6 +249,16 @@ def _ai_checks(reg) -> list[str]:
             errs_extra.append(f"{who}: unknown agent")
         elif e.get("skill") and not any(s["id"] == e["skill"] for s in reg.agents[e["agent"]]["skills"]):
             errs_extra.append(f"{who}: agent does not hold skill '{e['skill']}'")
+    native = reg.mapping.get("native") or {}
+    claude_models = set((reg.harnesses.get("claude-code") or {}).get("models") or [])
+    for kind, table in (("agents", native.get("agents") or {}), ("skills", native.get("skills") or {})):
+        for k, m in table.items():
+            if m not in claude_models:
+                errs_extra.append(f"mapping native.{kind}.{k}: '{m}' is not a claude-code model {sorted(claude_models)}")
+            if kind == "agents" and k not in reg.agents:
+                errs_extra.append(f"mapping native.agents.{k}: unknown agent")
+    if native.get("light_tasks") and native["light_tasks"] not in claude_models:
+        errs_extra.append(f"mapping native.light_tasks: '{native['light_tasks']}' is not a claude-code model")
     sels += [(f"config agents.overrides.{a}", (o or {}).get("ai")) for a, o in (reg.config["agents"].get("overrides") or {}).items()]
     errs = errs_extra
     for where, ai in sels:

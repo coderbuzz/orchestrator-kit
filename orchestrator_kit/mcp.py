@@ -42,7 +42,7 @@ def core_tools(pack: Pack, descriptions: dict | None = None) -> dict[str, dict]:
          "tasks": "List a project's tasks (optionally by status).",
          "task_show": "One task with its result, verification and evidence.",
          "task_add": "Create a task (checks agent, delegation, skill, artifact types, budget, AI selection).",
-         "task_start": "Mark a task RUNNING (dependencies done, attempts left) and get the prompt and the name of the subagent that does it.",
+         "task_start": "Mark a task RUNNING (dependencies done, attempts left) and get the prompt, the subagent that does it and the `model` to run it on.",
          "task_submit": "Submit the subagent's agent-result JSON: policy filter, approval gate, actions once, evidence check. "
                         "Returns COMPLETED, PLANNED (retry with feedback), WAITING_APPROVAL, FAILED or BLOCKED. `usage` only where no SubagentStop hook records it.",
          "task_close": "Cancel or fail a task with a reason.",
@@ -165,6 +165,7 @@ class Server:
         agent = c.reg.agents[t["assigned_agent"]]
         _, prompt = c.prompt(t, agent, c.reg.agent_skill(agent["id"], t["skill"]) if t.get("skill") else None)
         return {"task_id": t["task_id"], "subagent": c.subagent_name(agent["id"]), "attempt": t["attempts"],
+                "model": c.reg.native_model(agent["id"], t.get("skill"), t.get("ai")),  # pass to the Agent tool
                 "ai": c.reg.ai_for(agent["id"], None, t.get("ai")),
                 "subagent_prompt": prompt + "\n\n" + harness.contract_section(harness.standalone(c.reg.result_schema))}
 

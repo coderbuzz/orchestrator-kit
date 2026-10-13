@@ -31,6 +31,20 @@
       },
       "if": {"properties": {"status": {"const": "approved"}}, "required": ["status"]},
       "then": {"required": ["approval"]}}},
+    "native": {
+      "type": "object", "additionalProperties": false, "required": ["status"],
+      "description": "Claude model of the orchestrator session's native subagents (claude-code models, e.g. haiku/sonnet/opus = latest of each tier): per agent (the subagent's model) and per skill (passed to the Agent tool by task_start). A task's own ai on claude-code wins.",
+      "properties": {
+        "agents": {"type": "object", "additionalProperties": {"type": "string"}},
+        "skills": {"type": "object", "additionalProperties": {"type": "string"}},
+        "light_tasks": {"type": "string", "description": "Model the orchestrator gives light tasks (triage, formatting, summaries, data checks) through the task's ai."},
+        "rationale": {"type": "string"},
+        "evidence": {"type": "array", "items": {"type": "string"}},
+        "status": {"$ref": "#/$defs/status"},
+        "approval": {"$ref": "#/$defs/approval"}
+      },
+      "if": {"properties": {"status": {"const": "approved"}}, "required": ["status"]},
+      "then": {"required": ["approval"]}},
     "provider_policy": {
       "type": "object", "additionalProperties": false, "required": ["order", "rules", "status"],
       "properties": {

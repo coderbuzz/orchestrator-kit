@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.0 (2026-10-13)
+Additive:
+- Agent mapping `native` (Board-approved like entries): the Claude model of the session's native subagents per agent and per
+  skill, plus `light_tasks`. `Registry.native_model(agent, skill, task_ai)`: task ai on claude-code > native skill > native agent >
+  agent's claude-code ai > first claude-code candidate of its policy. The generator writes it as the subagent's `model`;
+  `task_start` returns it as `model` for the Agent tool. `validate` checks the models against the claude-code descriptor.
+
 ## 0.6.0 (2026-10-13)
 Additive:
 - `orchestrator_kit.usage` + `orchestrator-kit usage-hook <pack root>`: a SubagentStop hook reads the native subagent's
