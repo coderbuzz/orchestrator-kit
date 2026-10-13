@@ -18,7 +18,7 @@ import time
 from dataclasses import dataclass, field
 
 from .registry import Registry
-from .validate import validator_for
+from .validate import AI_SCHEMA, load, schema_file, validator_for
 
 
 @dataclass
@@ -115,12 +115,20 @@ def _tools(hdef: dict, caps: list[str]) -> list[str]:
     return sorted({t for c in caps for t in m.get(c, [])})
 
 
+def standalone(schema: dict) -> dict:
+    """The result schema as one document: claude --json-schema cannot resolve the shared `../ai/1` reference (it fails every call),
+    and rejects the draft-2020-12 meta-schema URI, so the AI schema is inlined and $schema/$id dropped."""
+    ai = {k: v for k, v in load(schema_file(AI_SCHEMA)).items() if k not in ("$schema", "$id")}
+    inline = lambda o: ({**ai, **{k: v for k, v in o.items() if k != "$ref"}} if isinstance(o, dict) and o.get("$ref") == "../ai/1"  # noqa: E731
+                        else {k: inline(v) for k, v in o.items()} if isinstance(o, dict) else [inline(x) for x in o] if isinstance(o, list) else o)
+    return {k: inline(v) for k, v in schema.items() if k not in ("$schema", "$id")}
+
+
 def build_claude(hdef, model, req: Request, schema: dict) -> list[str]:
     tools = ",".join(_tools(hdef, req.capabilities))
     args = _fill(hdef["invocation"]["non_interactive_args"], {
         "model": model, "tools": tools, "max_budget_usd": req.max_budget_usd or 1,
-        # claude's validator rejects the draft-2020-12 meta-schema URI; the schema body itself is accepted
-        "result_schema": json.dumps({k: v for k, v in schema.items() if k not in ("$schema", "$id")}), "cwd": req.cwd})
+        "result_schema": json.dumps(standalone(schema)), "cwd": req.cwd})
     # prompt and system prompt are substituted last so their text is never scanned for placeholders
     args = [req.prompt if a == "{prompt}" else req.system_prompt if a == "{system_prompt}" else a for a in args]
     if not tools:  # no tools at all: drop the empty allow-list

@@ -76,3 +76,18 @@ def test_validator_rejects_selection_a_harness_cannot_honour():
     assert "agent cfo: zcode needs a provider with model 'deepseek-v4'" in errs
     assert "config models.default_ai: ai.model/provider need ai.harness" in errs
     assert validate._ai_checks(o.reg) == []
+
+
+def test_claude_gets_a_self_contained_result_schema():
+    """Regression (found by a real profiling run 2026-10-13): claude --json-schema failed every call on the `../ai/1` reference."""
+    import json
+    from jsonschema import Draft202012Validator
+    reg = Registry()
+    argv = harness.build_claude(reg.harnesses["claude-code"], "haiku", harness.Request("s", "p", "/tmp", [], 0.1, 60), reg.result_schema)
+    schema = json.loads(argv[argv.index("--json-schema") + 1])
+    assert "../ai/1" not in json.dumps(schema) and "$id" not in schema and "$schema" not in schema
+    Draft202012Validator.check_schema(schema)
+    plan_item = {"key": "a", "agent": "cto", "objective": "o", "acceptance_criteria": ["c"], "ai": {"harness": "zcode", "effort": "low"}}
+    ok = {"status": "completed", "summary": "s", "artifacts": [], "plan": [plan_item]}
+    assert not list(Draft202012Validator(schema).iter_errors(ok))
+    assert list(Draft202012Validator(schema).iter_errors({**ok, "plan": [{**plan_item, "ai": {"effort": "huge"}}]})), "the inlined AI schema still applies"
