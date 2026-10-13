@@ -1,6 +1,6 @@
 """Load every definition from the repo once and resolve references (versions, config, policy parameters).
 
-The registry is read-only: Git is the source of truth for behavior; runtime state lives in companyos.store.
+The registry is read-only: Git is the source of truth for behavior; runtime state lives in orchestrator_kit.store.
 """
 from pathlib import Path
 
@@ -61,11 +61,9 @@ class Registry:
         for kind in ("company", "models", "agents", "policies", "environments"):
             items = {p.name: d for p, d in found.get(f"config:{kind}", [])}
             self.config[kind] = items.get("local.yaml") or items.get("example.yaml") or {}
-        self.task_lifecycle = v.load(self.root / "protocols/tasks/lifecycle.yaml")
-        self.product_lifecycle = v.load(self.root / "protocols/products/lifecycle.yaml")
+        self.task_lifecycle = v.load(v.schema_file("protocols/tasks/lifecycle.yaml", self.root))
         self.evidence_rules = v.load(self.root / "protocols/artifacts/evidence-requirements.yaml")
-        self.result_schema = v.load(self.root / "protocols/results/agent-result.schema.json")
-        self.state_schema = v.load(self.root / "company/state.schema.json")
+        self.result_schema = v.load(v.schema_file("protocols/results/agent-result.schema.json", self.root))
         self.preamble = (self.root / self.pack.preamble).read_text()
 
     @staticmethod

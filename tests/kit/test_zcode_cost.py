@@ -1,8 +1,8 @@
 """zh --json: usage tokens x pricing_usd_per_mtok -> cost (flat plans 0, unpriced routes keep the estimate)."""
 import json
 
-from companyos import harness
-from companyos.registry import Registry
+from orchestrator_kit import harness
+from orchestrator_kit.registry import Registry
 
 REG = Registry()
 DS = {"in": 0.30, "cache_hit": 0.006, "out": 1.20}   # the DeepSeek tariff; the zcode parser is generic, the price is passed in

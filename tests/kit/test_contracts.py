@@ -3,9 +3,8 @@ import re
 import subprocess
 
 import pytest
-import yaml
 
-from companyos import validate as v
+from orchestrator_kit import validate as v
 
 NOW = "2026-10-07T00:00:00Z"
 TASK = {"task_id": "task-001", "parent_task_id": None, "objective": "o", "assigned_agent": "example-agent", "created_by": "board",
@@ -47,8 +46,8 @@ def test_submitted_artifact_requires_evidence():
 
 
 def test_lifecycle_matches_schema():
-    lc = yaml.safe_load((v.ROOT / "protocols/tasks/lifecycle.yaml").read_text())
-    states = set(v.load(v.ROOT / "protocols/tasks/task.schema.json")["properties"]["status"]["enum"])
+    lc = v.load(v.schema_file("protocols/tasks/lifecycle.yaml"))
+    states = set(v.load(v.schema_file("protocols/tasks/task.schema.json"))["properties"]["status"]["enum"])
     assert set(lc["transitions"]) == states
     assert all(t in states for ts in lc["transitions"].values() for t in ts)
     assert all(lc["transitions"][s] == [] for s in lc["terminal"])

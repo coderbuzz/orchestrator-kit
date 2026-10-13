@@ -12,7 +12,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from companyos.harness import CallResult  # noqa: E402
+from orchestrator_kit.harness import CallResult  # noqa: E402
 
 SAMPLE = {"list": ["https://a.example/1", "https://b.example/2"], "string": "ok", "object": {"value": 1}, "bool": True}
 
@@ -97,7 +97,7 @@ class FakeHarness:
 @pytest.fixture
 def fake_dsh(tmp_path):
     """A scripted `dsh` executable: answers --version, records its other argv in argv.json, prints `stdout`, exits with `code`."""
-    from companyos.registry import Registry
+    from orchestrator_kit.registry import Registry
 
     def make(stdout="", code=0, version="0.1.6"):
         out, argv, script = tmp_path / "out.txt", tmp_path / "argv.json", tmp_path / "dsh"

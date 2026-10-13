@@ -24,10 +24,10 @@ class Pack:
 
     @classmethod
     def load(cls, root: Path) -> "Pack":
-        from .validate import errors_for, load, validator_for
+        from .validate import errors_for, load, schema_file, validator_for
         root = Path(root)
         m = yaml.safe_load((root / "pack.yaml").read_text())
-        if errs := errors_for(validator_for(load(root / SCHEMA), root), m):
+        if errs := errors_for(validator_for(load(schema_file(SCHEMA, root)), root), m):
             raise ValueError(f"{root / 'pack.yaml'}: {errs[:3]}")
         return cls(root, m["name"], m["server"], m["project_file"], m["state_dir"], m["human"]["id"], m["human"]["tool_prefix"],
                    m["preamble"], tuple(m["def_keys"]), m["plugin"], m["mcp"], m["hook"])

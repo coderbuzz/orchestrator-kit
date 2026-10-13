@@ -1,9 +1,9 @@
 """zcode contract guide, one corrective retry, and approved-mapping fallbacks in the Router."""
 import json
 
-from companyos import harness
-from companyos.registry import Registry
-from companyos.validate import validate_instance
+from orchestrator_kit import harness
+from orchestrator_kit.registry import Registry
+from orchestrator_kit.validate import validate_instance
 
 REG = Registry()
 OK = {"status": "completed", "summary": "s"}
@@ -19,7 +19,7 @@ def test_zcode_prompt_carries_a_valid_example():
     assert "`actions` is ONLY for actions" in prompt
     ex = json.loads(harness.CONTRACT_GUIDE.split("Valid example:\n")[1])
     assert validate_instance("agent-result", ex) == []
-    from companyos.verify import check_evidence
+    from orchestrator_kit.verify import check_evidence
     assert check_evidence(REG.evidence_rules, "research_report", ex["artifacts"][0]["evidence"]) == []
 
 

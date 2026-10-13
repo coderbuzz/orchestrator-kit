@@ -6,7 +6,7 @@ an agent's capabilities or above its authority, a side effect repeated after a c
 write outside an agent's scope, an invalid product stage change. A refusal raises `Refused` with the reason.
 
 Work is done either by the orchestrator's own subagents (native/: `task start`, then `task submit` with the agent-result
-JSON) or by a worker harness (`dispatch`: claude -p / zh -p with the task's AI selection, then submit). Exposed to sessions by the MCP server in companyos.mcp.
+JSON) or by a worker harness (`dispatch`: claude -p / zh -p with the task's AI selection, then submit). Exposed to sessions by the MCP server (orchestrator_kit.mcp, extended by the pack).
 
 Organization-specific behavior (company state, decisions, products, deploy gates) plugs in through the hook methods below
 (`init_state`, `filter_extras`, `apply_result`, `record_outcome`, `action_gate`, `visible_state`, `workspace_key`, `subagent_name`);
@@ -22,7 +22,7 @@ from .pack import Pack
 from .policy import Policy
 from .registry import Registry
 from .store import InvalidRecord, Store, new_id, now
-from .validate import AI_SCHEMA, ROOT, errors_for, load, validate_instance, validator_for
+from .validate import AI_SCHEMA, ROOT, errors_for, load, schema_file, validate_instance, validator_for
 
 TERMINAL = {"COMPLETED", "FAILED", "CANCELLED"}
 
@@ -47,7 +47,7 @@ class Runtime:
         project_dir, root = Path(project_dir), Path(kw.get("root") or ROOT)
         pack = Pack.load(root)
         cfg = yaml.safe_load((project_dir / pack.project_file).read_text()) or {}
-        if errs := errors_for(validator_for(load(root / "company/project.schema.json"), root), cfg):
+        if errs := errors_for(validator_for(load(schema_file("company/project.schema.json", root)), root), cfg):
             raise Refused(f"{project_dir / pack.project_file}: {errs[:3]}")
         c = cls(state_dir=project_dir / pack.state_dir / "state", **kw)
         c.project_dir = project_dir
@@ -171,7 +171,7 @@ class Runtime:
         return t
 
     def _check_ai(self, ai: dict):
-        if errs := errors_for(validator_for(load(self.reg.root / AI_SCHEMA), self.reg.root), ai):
+        if errs := errors_for(validator_for(load(schema_file(AI_SCHEMA, self.reg.root)), self.reg.root), ai):
             raise Refused(f"invalid ai selection: {errs[:2]}")
         if ai.get("harness"):
             hdef = self.reg.harnesses.get(ai["harness"])

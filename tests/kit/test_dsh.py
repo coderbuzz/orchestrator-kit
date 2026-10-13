@@ -3,8 +3,8 @@ import json
 
 import pytest
 
-from companyos import harness
-from companyos.registry import Registry
+from orchestrator_kit import harness
+from orchestrator_kit.registry import Registry
 
 REG = Registry()
 D = REG.harnesses["dsh"]

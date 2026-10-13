@@ -1,8 +1,8 @@
 """agy adapter: permission flag policy, `--output-format json` parsing (usage, denied_actions, errors), flat cost, unsupported effort."""
 import json
 
-from companyos import harness
-from companyos.registry import Registry
+from orchestrator_kit import harness
+from orchestrator_kit.registry import Registry
 
 REG = Registry()
 A = REG.harnesses["agy"]

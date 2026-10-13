@@ -2,8 +2,8 @@
 import copy
 import types
 
-from companyos import harness, validate
-from companyos.registry import Registry, merge_ai
+from orchestrator_kit import harness, validate
+from orchestrator_kit.registry import Registry, merge_ai
 
 REG = Registry()
 
