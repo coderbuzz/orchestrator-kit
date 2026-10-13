@@ -1,4 +1,4 @@
-# Deterministic task state machine, enforced by companyos/tools.py (`_set`).
+# Deterministic task state machine, enforced by companyos/runtime.py (`_set`).
 # Test: tests/contracts/test_contracts.py keeps this in sync with task.schema.json.
 version: 1.1.0
 initial: PENDING

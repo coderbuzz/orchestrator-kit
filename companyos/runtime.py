@@ -1,4 +1,4 @@
-"""Company tools: the deterministic guardrails an orchestrator session (Claude Code or zh) works through.
+"""Runtime: the deterministic guardrails an orchestrator session (Claude Code or zh) works through.
 
 The orchestrator decides what happens: the plan, who does what, the order, retries, when to stop.
 These operations refuse what must not happen: an invalid task transition, completion without evidence, an action outside
@@ -7,6 +7,10 @@ write outside an agent's scope, an invalid product stage change. A refusal raise
 
 Work is done either by the orchestrator's own subagents (native/: `task start`, then `task submit` with the agent-result
 JSON) or by a worker harness (`dispatch`: claude -p / zh -p with the task's AI selection, then submit). Exposed to sessions by the MCP server in companyos.mcp.
+
+Organization-specific behavior (company state, decisions, products, deploy gates) plugs in through the hook methods below
+(`init_state`, `filter_extras`, `apply_result`, `record_outcome`, `action_gate`, `visible_state`, `workspace_key`, `subagent_name`);
+a pack subclasses Runtime and overrides only those.
 """
 import json
 from pathlib import Path
@@ -14,7 +18,6 @@ from pathlib import Path
 import yaml
 
 from . import harness, verify
-from .adapters import ADAPTERS
 from .pack import Pack
 from .policy import Policy
 from .registry import Registry
@@ -22,12 +25,6 @@ from .store import InvalidRecord, Store, new_id, now
 from .validate import AI_SCHEMA, ROOT, errors_for, load, validate_instance, validator_for
 
 TERMINAL = {"COMPLETED", "FAILED", "CANCELLED"}
-
-
-def subagent_name(reg: Registry, agent_id: str) -> str:
-    """The plugin subagent that executes an agent's tasks. The orchestrator (CEO) is the conversation session, which does not
-    decide: its tasks run in `ceo-decision`, a subagent on the strongest model."""
-    return f"{agent_id}-decision" if reg.agents[agent_id]["type"] == "orchestrator" else agent_id
 
 
 class Refused(Exception):
@@ -39,9 +36,13 @@ def projects(workspace: Path, project_file: str) -> dict[str, Path]:
     return {p.parent.name: p.parent for p in sorted(Path(workspace).glob(f"*/{project_file}"))}
 
 
-class Company:
+class Runtime:
+    policy_class = Policy
+    builtin_adapters: dict = {}  # capability -> adapter fn the pack always has (internal adapters)
+    actor = "orchestrator"  # default `by` of tasks and decisions a session makes; a pack names its orchestrator agent
+
     @classmethod
-    def for_project(cls, project_dir: Path, **kw) -> "Company":
+    def for_project(cls, project_dir: Path, **kw) -> "Runtime":
         """The company as configured for one workspace project: its own state, budget, agents and default AI."""
         project_dir, root = Path(project_dir), Path(kw.get("root") or ROOT)
         pack = Pack.load(root)
@@ -69,21 +70,52 @@ class Company:
         self.reg = Registry(root)
         self.store = Store(state_dir or self.reg.state_dir, self.reg.root)
         self.workspaces_dir = (Path(state_dir) / "workspaces") if state_dir else self.reg.workspaces_dir
-        self.adapters = {**ADAPTERS, **(adapters or {})}
-        self.policy = Policy(self.reg, set(adapters or {}))
+        self.adapters = {**self.builtin_adapters, **(adapters or {})}
+        self.policy = self.policy_class(self.reg, set(adapters or {}))
         self.router = harness.Router(self.reg, self.store.get("runtime", "health") or {}, check_installed=invoke is None)
         self.invoke = invoke or harness.invoke
-        if not self.store.company():
-            mission = (self.reg.root / "company/mission/mission.md").read_text()
-            self.store.save_company({"schema_version": 2, "mission": mission.strip(), "products": [], "decisions": []})
+        self.init_state()
+
+    # ------------------------------------------------------------------ pack hooks (defaults: no shared state, no extras)
+    def init_state(self):
+        """Create the pack's shared state document, if it has one."""
+
+    def subagent_name(self, agent_id: str) -> str:
+        """The native subagent that executes an agent's tasks."""
+        return agent_id
+
+    def visible_state(self, agent: dict) -> dict | None:
+        """Shared state an agent may read in its prompt (None = the pack has none)."""
+        return None
+
+    def workspace_key(self, t: dict) -> str:
+        """Scratch workspace shared by tasks of one initiative: the root task by default."""
+        return t["parent_task_id"] or t["task_id"]
+
+    def filter_extras(self, t: dict, res: dict, dropped: list[str]):
+        """Drop result items beyond actions that the agent may not produce (append the reason to `dropped`)."""
+        for key in ("state_updates", "memory_notes"):
+            if res.get(key):
+                dropped.append(f"{key}: this pack keeps no shared state")
+                res[key] = []
+
+    def apply_result(self, t: dict, res: dict):
+        """Persist a verified result's side effects (state, memory). May raise InvalidRecord: nothing is then written."""
+
+    def record_outcome(self, t: dict, res: dict):
+        """After evidence is accepted, just before COMPLETED: record the decision, if the pack records them."""
+
+    def action_gate(self, t: dict, capability: str) -> str | None:
+        """A reason to deny an action before it runs (a pack's own gates, e.g. deploy order); None = allowed."""
+        return None
 
     # ------------------------------------------------------------------ records
     def audit(self, actor: str, action: str, why: str, task: dict | None = None, **extra):
         self.store.append("audit.jsonl", {"at": now(), "actor": actor, "action": action, "why": why[:1000],
                                           "task_id": (task or {}).get("task_id"), **extra})
 
-    def board_message(self, sender: str, message: str, task_id: str | None = None, kind: str = "info"):
-        self.store.append("board/inbox.jsonl", {"at": now(), "from": sender, "kind": kind, "message": message[:4000], "task_id": task_id})
+    def notify_human(self, sender: str, message: str, task_id: str | None = None, kind: str = "info"):
+        self.store.append(f"{self.reg.pack.human_id}/inbox.jsonl", {"at": now(), "from": sender, "kind": kind, "message": message[:4000], "task_id": task_id})
 
     def task(self, task_id: str) -> dict:
         t = self.store.get("tasks", task_id)
@@ -102,7 +134,8 @@ class Company:
     # ------------------------------------------------------------------ tasks
     def add_task(self, agent: str, objective: str, criteria: list[str], *, skill: str | None = None, artifacts: list[str] | None = None,
                  after: list[str] = (), budget_usd: float | None = None, ai: dict | None = None, parent: str | None = None,
-                 level: int = 0, decision_options: list[str] | None = None, inputs: dict | None = None, by: str = "ceo") -> dict:
+                 level: int = 0, decision_options: list[str] | None = None, inputs: dict | None = None, by: str | None = None) -> dict:
+        by = by or self.actor
         if agent not in self.reg.agents or agent not in self.reg.enabled_agents:
             raise Refused(f"unknown or disabled agent '{agent}'")
         if by in self.reg.agents and not self.policy.can_delegate(by, agent):
@@ -162,11 +195,13 @@ class Company:
             t["attempts"] += 1
             return self._set(t, "RUNNING", f"attempt {t['attempts']}", actor)
 
-    def cancel(self, task_id: str, why: str, actor: str = "ceo") -> dict:
+    def cancel(self, task_id: str, why: str, actor: str | None = None) -> dict:
+        actor = actor or self.actor
         with self.store.tx():
             return self._set(self.task(task_id), "CANCELLED", why, actor)
 
-    def fail(self, task_id: str, why: str, actor: str = "ceo") -> dict:
+    def fail(self, task_id: str, why: str, actor: str | None = None) -> dict:
+        actor = actor or self.actor
         with self.store.tx():
             t = self.task(task_id)
             t["blocked_reason"] = why[:500]
@@ -208,12 +243,12 @@ class Company:
             return {"status": "WAITING_APPROVAL", "notes": [f"approval {apr['approval_id']} (level {level}) from {apr['approver']}"]}
         if level == 3 and not self.store.done(f"notify3:{t['task_id']}"):
             self.store.mark(f"notify3:{t['task_id']}")
-            self.board_message(agent, f"Level-3 action proceeding: {t['objective'][:200]} -> {res['summary'][:400]}", t["task_id"], "level-3")
+            self.notify_human(agent, f"Level-3 action proceeding: {t['objective'][:200]} -> {res['summary'][:400]}", t["task_id"], "level-3")
         failed = self._execute_actions(t, actions)
         if failed:
             t["blocked_reason"] = failed
             self._set(t, "FAILED", failed + " (no automatic retry)", "system")
-            self.board_message("system", f"Irreversible action failed: {failed}", t["task_id"], "escalation")
+            self.notify_human("system", f"Irreversible action failed: {failed}", t["task_id"], "escalation")
             return {"status": "FAILED", "notes": [failed]}
         arts = [self.store.get("artifacts", a) for a in self._artifact_ids(t)]
         known = {a["artifact_id"] for a in self.store.all("artifacts")}
@@ -223,14 +258,13 @@ class Company:
         if verdict == "FAIL":
             return self._retry_or_fail(t, "verification failed: " + "; ".join(notes)[:800])
         try:
-            self._apply_state(t, res)
+            self.apply_result(t, res)
         except InvalidRecord as e:  # nothing was written: company state is validated before the atomic write
             return self._retry_or_fail(t, f"state update rejected: {e}")
         for a in arts:
             self.store.put("artifacts", {**a, "status": "accepted"})
         t["evidence"] = [a["artifact_id"] for a in arts]
-        if res.get("decision"):
-            self._record_decision(t, res["decision"])
+        self.record_outcome(t, res)
         self._set(t, "COMPLETED", "evidence verified" + (" (partial)" if res["status"] == "partial" else ""), agent)
         return {"status": "COMPLETED", "notes": t["result"].get("policy_rejections", [])}
 
@@ -251,7 +285,7 @@ class Company:
             if not ws.is_relative_to(self.project_dir.resolve()):
                 raise Refused(f"workdir {t['inputs']['workdir']} is outside the project")
             return ws
-        ws = self.workspaces_dir / (t["inputs"].get("product_id") or t["parent_task_id"] or t["task_id"])
+        ws = self.workspaces_dir / self.workspace_key(t)
         ws.mkdir(parents=True, exist_ok=True)
         return ws
 
@@ -272,24 +306,12 @@ class Company:
 
     def _filter_unauthorized(self, t: dict, res: dict):
         """Drop result items the agent may not produce; each one is recorded."""
-        agent, tools, dropped = t["assigned_agent"], self.reg.agents[t["assigned_agent"]]["tools"], []
-        kept = []
+        agent, dropped, kept = t["assigned_agent"], [], []
         for a in res.get("actions") or []:
             why = self.policy.check_capability(agent, a["capability"])
             (dropped.append(f"action: {why}") if why else kept.append(a))
         res["actions"] = kept
-        kept = []
-        for s in res.get("state_updates") or []:
-            ok = self.policy.can_write(agent, f"company/{s['section']}") and "update_company_state" in tools
-            (kept.append(s) if ok else dropped.append(f"state: may not write company/{s['section']}"))
-        res["state_updates"] = kept
-        dept = self.reg.agents[agent]["department"]
-        if res.get("memory_notes") and not self.policy.can_write(agent, f"department/{dept}"):
-            dropped.append(f"memory: may not write department/{dept}")
-            res["memory_notes"] = []
-        if res.get("decision") and "record_decision" not in tools and not t["decision_options"]:
-            dropped.append("decision: agent lacks record_decision")
-            res.pop("decision")
+        self.filter_extras(t, res, dropped)
         for d in dropped:
             self.audit("policy", "reject", d, t, result="rejected")
         if dropped:
@@ -307,7 +329,7 @@ class Company:
             elif self.store.done(key + ":start"):
                 return f"{cap} started before a crash with no recorded outcome; not repeated automatically (needs review)"
             else:
-                gate = self.policy.deployment_gate("production", self._family_artifacts(t)) if cap == "deploy_production" else None
+                gate = self.action_gate(t, cap)
                 fn = self.adapters.get(cap)
                 if gate:
                     outcome = {"ok": False, "status": "denied", "detail": gate}
@@ -331,47 +353,6 @@ class Company:
             self._register_artifacts(t, [{**p, "content": None} for p in produced], "system", offset=50)
         return None
 
-    def _family_artifacts(self, t: dict) -> list[dict]:
-        """Artifacts of tasks that share this task's root (the initiative) — what the deployment gate looks at."""
-        root = lambda x: root(self.task(x["parent_task_id"])) if x.get("parent_task_id") else x["task_id"]  # noqa: E731
-        mine = root(t)
-        return [a for a in self.store.all("artifacts") if (o := self.store.get("tasks", a["task_id"])) and root(o) == mine]
-
-    def _apply_state(self, t: dict, res: dict):
-        if res.get("state_updates"):
-            state = self.store.company()
-            for su in res["state_updates"]:
-                sec, val = su["section"], su["value"]
-                if su["op"] == "append":
-                    state[sec] = (state.get(sec) or []) + (val if isinstance(val, list) else [val])
-                elif su["op"] == "merge" and isinstance(state.get(sec), dict) and isinstance(val, dict):
-                    state[sec].update(val)
-                else:
-                    state[sec] = val
-            self.store.save_company(state)  # schema-validated; an invalid update raises and nothing is written
-        dept = self.reg.agents[t["assigned_agent"]]["department"]
-        for n in res.get("memory_notes") or []:
-            self.store.append(f"memory/{dept}.jsonl", {"at": now(), "agent": t["assigned_agent"], "task_id": t["task_id"], "note": n})
-
-    def _record_decision(self, t: dict, d: dict):
-        if t["decision_options"] and d["selected_option"] not in t["decision_options"]:
-            return  # verify already failed this; defensive
-        opts = d.get("options_considered") or [{"id": o, "summary": o} for o in t["decision_options"]]
-        opts = opts if len(opts) >= 2 else opts + [{"id": "status-quo", "summary": "Do nothing"}]
-        if not any(o["id"] == d["selected_option"] for o in opts):
-            opts.append({"id": d["selected_option"], "summary": "selected"})
-        rec = {"decision_id": f"dec-{t['task_id']}", "decision": f"{d['selected_option']}: {t['objective'][:300]}",
-               "decision_type": "strategic" if t["assigned_agent"] == "ceo" else "operational", "owner": t["assigned_agent"],
-               "objective": t["objective"], "options": opts, "selected_option": d["selected_option"],
-               "reasoning_summary": d["reasoning_summary"][:1500], "evidence": self._artifact_ids(t), "confidence": d["confidence"],
-               "impact": d.get("impact", "medium"), "cost": {"estimate_usd": d.get("cost_estimate_usd")}, "risk": d.get("risk", "medium"),
-               "reversibility": d.get("reversibility", "costly"), "approval_required": bool(t.get("approval_id")),
-               "approval_status": "granted" if t.get("approval_id") else "not_required", "created_at": now()}
-        self.store.put("decisions", rec)
-        state = self.store.company()
-        state.setdefault("decisions", []).append(rec["decision_id"])
-        self.store.save_company(state)
-
     # ------------------------------------------------------------------ approvals
     def _approved(self, t: dict) -> bool:
         a = self.store.get("approvals", t["approval_id"]) if t.get("approval_id") else None
@@ -386,7 +367,7 @@ class Company:
         t["approval_id"] = a["approval_id"]
         self._set(t, "WAITING_APPROVAL", f"level {level} approval from {approver}")
         if approver == self.reg.pack.human_id:
-            self.board_message(t["assigned_agent"], f"Approval needed (level {level}) [{a['approval_id']}]: {action[:500]} — {justification[:600]}",
+            self.notify_human(t["assigned_agent"], f"Approval needed (level {level}) [{a['approval_id']}]: {action[:500]} — {justification[:600]}",
                                t["task_id"], "approval")
         return a
 
@@ -417,34 +398,6 @@ class Company:
                 return {"status": "FAILED", "notes": [t["blocked_reason"]]}
             self._set(t, "RUNNING", f"approval {approval_id} granted by {by}", by)
             return self._process(t)
-
-    # ------------------------------------------------------------------ products (lifecycle-guarded)
-    def add_product(self, name: str, by: str = "ceo") -> dict:
-        with self.store.tx():
-            state = self.store.company()
-            pid = "prod-" + "".join(c if c.isalnum() else "-" for c in name.lower())[:40].strip("-") + "-" + new_id("x")[2:6]
-            prod = {"id": pid, "name": name, "stage": self.reg.product_lifecycle["initial"], "priority": "normal", "runs": [],
-                    "workspace": str(self.workspaces_dir / pid), "brief": ""}
-            state.setdefault("products", []).append(prod)
-            self.store.save_company(state)
-            self.audit(by, "product add", name, product_id=pid)
-            return prod
-
-    def product_stage(self, product_id: str, target: str, why: str, by: str = "ceo") -> dict:
-        with self.store.tx():
-            state = self.store.company()
-            prod = next((p for p in state.get("products", []) if p["id"] == product_id), None)
-            if prod is None:
-                raise Refused(f"no product {product_id}")
-            if target not in self.reg.product_lifecycle["transitions"][prod["stage"]]:
-                raise Refused(f"product {product_id}: {prod['stage']} -> {target} is not an allowed transition")
-            if by != self.reg.pack.human_id and self.policy.effect_level({"product_transition": target}, prod["stage"]) >= 4:
-                raise Refused(f"decision-rights/board-reserved: only the Board may move a live product to {target}")
-            prod.setdefault("stage_history", []).append({"from": prod["stage"], "to": target, "at": now(), "why": why[:300]})
-            prod["stage"] = target
-            self.store.save_company(state)
-            self.audit(by, f"product {target}", why, product_id=product_id)
-            return prod
 
     # ------------------------------------------------------------------ worker harness dispatch
     def daily_spend(self) -> float:
@@ -500,8 +453,7 @@ class Company:
     def prompt(self, t: dict, agent: dict, skill: dict | None) -> tuple[str, str]:
         """System prompt (role, policies, skill) and the task contract for a worker harness."""
         caps = {c: ("available" if self.policy.available(c) else "UNAVAILABLE (requires configuration)") for c in agent["tools"]}
-        definition = {k: agent[k] for k in ("id", "name", "role", "mission", "responsibilities", "non_responsibilities", "authority",
-                                            "success_criteria", "escalation_rules") if k in agent}
+        definition = {k: agent[k] for k in self.reg.pack.def_keys if k in agent}
         pol = [f"- {p['id']}/{r['id']} ({r['enforcement']}): {r['statement']}" for ref in agent["policies"]
                for p in [self.reg.policy(ref)] for r in p["rules"]]
         parts = [self.reg.preamble, (self.reg.root / agent["prompt_file"]).read_text(),
@@ -519,13 +471,11 @@ class Company:
                     "attempt": t["attempts"], "inputs": t["inputs"]}
         deps = [{"task": d["objective"], "agent": d["assigned_agent"], "summary": (d.get("result") or {}).get("summary"),
                  "artifacts": [self._artifact_view(a) for a in d["evidence"]]} for d in map(self.task, t["dependencies"])]
-        state = self.store.company()
-        visible = {s.split("/", 1)[1]: state.get(s.split("/", 1)[1]) for s in agent["memory_scope"]["reads"]
-                   if s.startswith("company/") and s != "company/context"}
+        visible = self.visible_state(agent)
         user = "\n\n".join([
             "# Task contract\n```json\n" + json.dumps(contract, indent=1, default=str)[:20000] + "\n```",
             "# Results of the tasks this one depends on\n```json\n" + json.dumps(deps, indent=1, default=str)[:60000] + "\n```",
-            "# Company state (your read scope)\n```json\n" + json.dumps(visible, indent=1, default=str)[:20000] + "\n```",
+            *(["# Company state (your read scope)\n```json\n" + json.dumps(visible, indent=1, default=str)[:20000] + "\n```"] if visible is not None else []),
             "# Answer\nReturn one agent-result JSON object. Each required artifact type needs the evidence keys listed in the contract. "
             "Use `decision.selected_option` from decision_options when given. Work in the current directory (your task workspace)."])
         return "\n\n".join(parts), user

@@ -5,6 +5,7 @@ Kind is inferred from the file suffix, so adding a definition needs no registry 
 """
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from .pack import Pack
 # Default pack root: the checkout this package lives in; COMPANYOS_ROOT points the tools at another one. Every function below
 # takes an explicit `root` and only falls back to this.
 ROOT = Path(os.environ.get("COMPANYOS_ROOT") or Path(__file__).resolve().parent.parent)
+SECTION_RE = re.compile(r"^(company|department)/[a-z_]+$")  # memory scopes: company/<state section> or department/<department>
 SKIP = {".git", ".venv", "tests", "state", "__pycache__", "archive", "plugin", ".claude-plugin"}
 
 # suffix -> schema path (relative to ROOT)
@@ -158,7 +160,7 @@ def check(root: Path | None = None) -> list[str]:
 
 def _semantic_checks(found, root: Path) -> list[str]:
     """Checks that need resolved references: versions, capability coverage, memory scopes, AI selections."""
-    from .registry import Registry, SECTION_RE
+    from .registry import Registry
     errs: list[str] = []
     try:
         reg = Registry(root)

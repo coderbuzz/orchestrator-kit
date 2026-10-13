@@ -2,13 +2,10 @@
 
 The registry is read-only: Git is the source of truth for behavior; runtime state lives in companyos.store.
 """
-import re
 from pathlib import Path
 
 from . import validate as v
 from .pack import Pack
-
-ORCHESTRATOR_ONLY_SECTIONS = {"products", "decisions", "policies", "as_of", "schema_version"}
 
 
 def parse_version(s: str) -> tuple[int, ...]:
@@ -181,5 +178,3 @@ class Registry:
     def agents_with_skill(self, skill_id: str) -> list[str]:
         return sorted(a for a, d in self.agents.items() if any(s["id"] == skill_id for s in d["skills"]))
 
-
-SECTION_RE = re.compile(r"^(company|department)/[a-z_]+$")
