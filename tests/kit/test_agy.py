@@ -25,8 +25,9 @@ def test_permission_flag_always_passed():
 
 
 def test_result_cost_and_tokens_from_json():
-    out, cost, err = harness.parse("agy", agy_json(), harness.price_for(A, "account:google-ai-pro", "gemini-3.8-flash-high"))
-    assert out == RESULT and err == "" and cost == 0.0   # flat plan: exact zero, not an estimate
+    price = harness.price_for(A, "account:google-ai-pro", "gemini-3.8-flash-high")
+    out, listed, err = harness.parse("agy", agy_json(), price)
+    assert out == RESULT and err == "" and harness.billing(price, listed) == (0.0, None)   # flat plan: charged exactly 0, not an estimate
     assert harness.usage_of("agy", agy_json()) == {"inputTokens": 2199 + 9708, "outputTokens": 117, "cacheReadTokens": 9708, "reasoningTokens": 5}
 
 
