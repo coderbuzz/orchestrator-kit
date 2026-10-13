@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 
+from . import harness
 from .pack import Pack
 from .runtime import Refused, Runtime, projects, read_project, write_project
 from .validate import ROOT
@@ -137,7 +138,11 @@ class Server:
         return self._summary(a["project"])
 
     def _status(self, _, a):
-        return self.report(self.company(a["project"]))
+        c = self.company(a["project"])
+        p = c.project
+        head = (f"# Project {a['project']}: {p['name']}\n\n- goal: {p.get('goal') or 'not set'}\n- roster: {', '.join(sorted(c.reg.enabled_agents))}\n"
+                f"- daily budget: {p.get('daily_budget_usd')} USD\n\n")
+        return head + self.report(c)
 
     def _tasks(self, _, a):
         c = self.company(a["project"])
@@ -159,7 +164,7 @@ class Server:
         _, prompt = c.prompt(t, agent, c.reg.agent_skill(agent["id"], t["skill"]) if t.get("skill") else None)
         return {"task_id": t["task_id"], "subagent": c.subagent_name(agent["id"]), "attempt": t["attempts"],
                 "ai": c.reg.ai_for(agent["id"], None, t.get("ai")),
-                "subagent_prompt": prompt + "\n\nReturn only the agent-result JSON object."}
+                "subagent_prompt": prompt + "\n\n" + harness.contract_section(harness.standalone(c.reg.result_schema))}
 
     def _task_submit(self, _, a):
         return self.company(a["project"]).submit(a["task_id"], a["result"])

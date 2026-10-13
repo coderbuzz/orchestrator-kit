@@ -166,7 +166,7 @@ def test_project_hires_its_team_from_the_catalog(tmp_path):
     info = s.call("project_init", {"project": "pr-9", "name": "PR 9", "daily_budget_usd": 1, "goal": "Ship PR 9 without security defects",
                                    "roster": ["security-reviewer"]})
     assert info["roster"] == ["review-lead", "security-reviewer"], "the orchestrator is always on the roster"
-    with pytest.raises(Refused, match="unknown or disabled agent 'bug-reviewer'"):
+    with pytest.raises(Refused, match=r"'bug-reviewer' is not on this project's roster \(use maintainer_staff\)"):
         s.call("task_add", {"project": "pr-9", "agent": "bug-reviewer", "objective": "x", "criteria": ["x"]})
     info = s.call("maintainer_staff", {"project": "pr-9", "hire": ["bug-reviewer"], "release": ["security-reviewer"]})
     assert info["roster"] == ["bug-reviewer", "review-lead"]
@@ -176,6 +176,10 @@ def test_project_hires_its_team_from_the_catalog(tmp_path):
     c = s.company("pr-9")
     assert '"project_goal": "Ship PR 9 without security defects"' in c.prompt(c.task(t), c.reg.agents["bug-reviewer"], None)[1]
     assert any(a["action"] == "roster" for a in c.store.read_log("audit.jsonl"))
+    report = s.call("status", {"project": "pr-9"})
+    assert "- goal: Ship PR 9 without security defects" in report and "- roster: bug-reviewer, review-lead" in report
+    with pytest.raises(Refused, match="unknown or disabled agent 'nobody'"):
+        s.call("task_add", {"project": "pr-9", "agent": "nobody", "objective": "x", "criteria": ["x"]})
 
 
 def test_human_is_told_at_80_percent_of_the_daily_budget(review):
@@ -189,3 +193,25 @@ def test_human_is_told_at_80_percent_of_the_daily_budget(review):
         s.call("dispatch", {"project": "pr-7", "task_id": t})
     warnings = [m for m in c.store.read_log("maintainer/inbox.jsonl") if m["kind"] == "budget"]
     assert len(warnings) == 1 and "80%" in warnings[0]["message"]
+
+
+def test_native_subagent_gets_the_contract_and_a_contract_violation_uses_the_attempt(review):
+    s, _, base, _, _ = review
+    t = s.call("task_add", {"project": "pr-7", "agent": "security-reviewer", "objective": "review", "criteria": ["in diff"],
+                            "skill": "security-review", "inputs": {"workdir": "repo"}})
+    first = s.call("task_start", {"project": "pr-7", "task_id": t})
+    prompt = first["subagent_prompt"]
+    assert "Valid example:" in prompt and '"reversibility": {"enum": ["easy", "costly", "irreversible"]}' in prompt
+    assert '"$ref": "../ai/1"' not in prompt, "the schema is self-contained"
+    bad = {"status": "completed", "summary": "s", "state_updates": {}, "artifacts": [{"kind": "review_scope", "title": "t", "evidence": {}}]}
+    out = s.call("task_submit", {"project": "pr-7", "task_id": t, "result": bad})
+    assert out["status"] == "PLANNED" and "state_updates" in out["notes"][0], "rejected with feedback, not left RUNNING"
+    again = s.call("task_start", {"project": "pr-7", "task_id": t})
+    assert again["attempt"] == 2 and "previous_attempt_feedback" in again["subagent_prompt"] and "kind" in again["subagent_prompt"]
+    assert s.call("task_submit", {"project": "pr-7", "task_id": t, "result": bad})["status"] == "FAILED"
+    with pytest.raises(Refused, match="attempts exhausted|is FAILED"):
+        s.call("task_start", {"project": "pr-7", "task_id": t})
+    t2 = s.call("task_add", {"project": "pr-7", "agent": "security-reviewer", "objective": "review", "criteria": ["in diff"],
+                             "skill": "security-review", "inputs": {"workdir": "repo"}})
+    s.call("task_start", {"project": "pr-7", "task_id": t2})
+    assert s.call("task_submit", {"project": "pr-7", "task_id": t2, "result": result(scope(base))})["status"] == "COMPLETED"

@@ -17,10 +17,13 @@ def test_zcode_prompt_carries_a_valid_example():
     argv = harness.build_zcode(REG.harnesses["zcode"], "m", req(), REG.result_schema)
     prompt = argv[argv.index("-p") + 1]
     assert "`actions` is ONLY for actions" in prompt
-    ex = json.loads(harness.CONTRACT_GUIDE.split("Valid example:\n")[1])
-    assert validate_instance("agent-result", ex) == []
     from orchestrator_kit.verify import check_evidence
-    assert check_evidence(REG.evidence_rules, "research_report", ex["artifacts"][0]["evidence"]) == []
+    examples = [json.loads(line) for line in harness.CONTRACT_GUIDE.splitlines() if line.startswith("{")]
+    assert len(examples) == 2
+    for ex in examples:
+        assert validate_instance("agent-result", ex) == []
+        art = ex["artifacts"][0]
+        assert check_evidence(REG.evidence_rules, art["type"], art["evidence"]) == []
 
 
 def _router():

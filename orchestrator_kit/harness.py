@@ -144,18 +144,26 @@ CONTRACT_GUIDE = """Rules for the JSON object (it is machine-validated; extra or
 - Allowed top-level keys only: status, summary, artifacts, decision, verdict, findings, actions, state_updates, memory_notes, follow_up_tasks, plan, blocked_reason, metrics. Omit every key you do not need.
 - `actions` is ONLY for actions you ask the orchestrator to perform: [{"capability": "<capability id>", "reason": "..."}]. It is not a log of what you did; omit it otherwise.
 - `findings` is a list of plain strings, never objects. `follow_up_tasks`/`plan` items need key (kebab-case), objective, agent, acceptance_criteria (list of strings).
-- Each artifact is {"type", "title", "content" (markdown), "evidence" (object with the keys that artifact type requires)}.
+- Each artifact is {"type", "title", "content" (markdown), "evidence" (object with the keys that artifact type requires)}; the key is `type`, never `kind`.
+- `decision` (decision tasks only): selected_option (one of the task's decision_options), reasoning_summary, confidence (0-1), and optionally options_considered [{"id", "summary", "pros": [...], "cons": [...]}], impact and risk ("low" | "medium" | "high"), reversibility ("easy" | "costly" | "irreversible"), cost_estimate_usd, parameters (object).
+- `state_updates` is a list of {"section", "op" ("set" | "merge" | "append"), "value"}, never an object; omit it when you change nothing.
 Valid example:
-{"status": "completed", "summary": "Researched X; two sources agree.", "artifacts": [{"type": "research_report", "title": "X market", "content": "# X\\n...", "evidence": {"sources": ["https://example.com/a", "https://example.com/b"], "findings": ["finding one"], "confidence": 0.7}}]}"""
+{"status": "completed", "summary": "Researched X; two sources agree.", "artifacts": [{"type": "research_report", "title": "X market", "content": "# X\\n...", "evidence": {"sources": ["https://example.com/a", "https://example.com/b"], "findings": ["finding one"], "confidence": 0.7}}]}
+Valid decision example:
+{"status": "completed", "summary": "Chose A: cheaper and reversible.", "decision": {"selected_option": "A", "options_considered": [{"id": "A", "summary": "Option A"}, {"id": "B", "summary": "Option B"}], "reasoning_summary": "A costs less and is easy to undo.", "confidence": 0.7, "impact": "low", "risk": "low", "reversibility": "easy", "cost_estimate_usd": 0}, "artifacts": [{"type": "decision_record", "title": "Decision: A", "content": "# Decision: A\\n...", "evidence": {"selected_option": "A"}}]}"""
 
 
 def _mode(caps: set[str]) -> str:
     return "yolo" if caps & {"execute_command", "run_tests"} else "edit" if "write_repository" in caps else "plan"
 
 
+def contract_section(schema: dict) -> str:
+    """How to answer: the result schema and the guide. Worker harnesses get it appended; native subagents get it from task_start."""
+    return f"Return ONLY one JSON object matching this schema:\n{json.dumps(schema)}\n\n{CONTRACT_GUIDE}"
+
+
 def _contract_prompt(req: Request, schema: dict) -> str:
-    return (f"{req.system_prompt}\n\n---\n\n{req.prompt}\n\nReturn ONLY one JSON object matching this schema:\n"
-            f"{json.dumps(schema)}\n\n{CONTRACT_GUIDE}")
+    return f"{req.system_prompt}\n\n---\n\n{req.prompt}\n\n{contract_section(schema)}"
 
 
 def build_zcode(hdef, model, req: Request, schema: dict) -> list[str]:
