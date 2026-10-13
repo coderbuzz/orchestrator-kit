@@ -1,5 +1,8 @@
 # Changelog
 
+## Unreleased
+- `task_start` runs a claude-code task whose model is a full model id (e.g. `claude-haiku-5-5`) on the worker path (`claude -p --model <id>`): the session's Agent tool accepts only the aliases opus/sonnet/haiku, and an alias follows whatever the Claude Code version maps it to (haiku resolved to Haiku 4.5).
+
 ## 0.7.4 (2026-10-14)
 - `Server.call` refuses a call missing a required argument of the tool schema, naming it (was a bare `KeyError`).
 

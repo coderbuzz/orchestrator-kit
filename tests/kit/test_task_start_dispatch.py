@@ -26,3 +26,17 @@ def test_missing_required_argument_is_refused_by_name(tmp_path):
     s = Server(tmp_path, tools=list(core_tools(Pack.load(Registry().root)).values()))
     with pytest.raises(Refused, match=r"task_close: missing required argument\(s\) \['outcome'\]"):
         s.call("task_close", {"project": "p", "task_id": "t", "reason": "x", "why": "x"})
+
+
+def test_a_pinned_claude_model_id_runs_on_the_worker_path(tmp_path):
+    (tmp_path / "p").mkdir()
+    fake = FakeHarness()
+    s = Server(tmp_path, invoke=fake)
+    s.call("project_init", {"project": "p", "name": "P", "daily_budget_usd": 5})
+    c = fake.orch = s.company("p")
+    agent = next(a for a in c.reg.enabled_agents if c.reg.agents[a]["type"] != "orchestrator")
+    mk = lambda model: s.call("task_add", {"project": "p", "agent": agent, "objective": "o", "criteria": ["c"],  # noqa: E731
+                                           "ai": {"harness": "claude-code", "model": model}})
+    assert "subagent_prompt" in s.call("task_start", {"project": "p", "task_id": mk("haiku")}), "an alias stays on the native path"
+    out = s.call("task_start", {"project": "p", "task_id": mk("claude-haiku-5-5")})
+    assert out["dispatched"] is True and [x["model"] for x in fake.calls] == ["claude-haiku-5-5"]

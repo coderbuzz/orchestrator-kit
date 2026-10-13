@@ -22,6 +22,9 @@ L = {"type": "array", "items": S}
 P = {"project": {**S, "description": "Workspace project folder name (see `projects`)"}}
 
 
+NATIVE_ALIASES = ("opus", "sonnet", "haiku")  # the only model names the session's Agent tool accepts; a full model id runs on the worker path
+
+
 def tool(name, description, props=None, required=()):
     return {"name": name, "description": description,
             "inputSchema": {"type": "object", "properties": {**P, **(props or {})}, "required": ["project", *required]}}
@@ -167,7 +170,9 @@ class Server:
         t = c.task(a["task_id"])
         agent = c.reg.agents[t["assigned_agent"]]
         skill = c.reg.agent_skill(agent["id"], t["skill"]) if t.get("skill") else None
-        if (h := c.reg.ai_for(agent["id"], skill, t.get("ai")).get("harness")) not in (None, "claude-code"):
+        h = c.reg.ai_for(agent["id"], skill, t.get("ai")).get("harness")
+        pinned = c.reg.native_model(agent["id"], t.get("skill"), t.get("ai")) not in (None, *NATIVE_ALIASES)  # the Agent tool takes aliases only
+        if h not in (None, "claude-code") or pinned:
             return {"task_id": t["task_id"], "dispatched": True, **c.dispatch(t["task_id"])}  # worker harness: run it here, no subagent to call
         t = c.start(a["task_id"], actor=c.actor)
         _, prompt = c.prompt(t, agent, skill)
