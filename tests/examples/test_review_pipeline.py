@@ -319,3 +319,17 @@ def test_native_mapping_models_are_validated(tmp_path):
     (copy / "model-routing/mappings/agent-mapping.yaml").write_text(yaml.safe_dump(mapping))
     errs = validate.check(copy)
     assert any("native.agents.security-reviewer: 'gpt-9'" in e for e in errs) and any("native.agents.nobody: unknown agent" in e for e in errs)
+
+
+def _task(s):
+    return s.call("task_add", {"project": "pr-7", "agent": "security-reviewer", "objective": "review", "criteria": ["in diff"],
+                               "skill": "security-review", "inputs": {"workdir": "repo"}})
+
+
+def test_dispatch_takes_a_started_task_without_a_second_attempt(review):
+    s, answers, base, _, _ = review
+    t = _task(s)
+    s.call("task_start", {"project": "pr-7", "task_id": t})
+    answers["security-reviewer"] = [result(scope(base))]
+    assert s.call("dispatch", {"project": "pr-7", "task_id": t})["status"] == "COMPLETED"
+    assert s.call("task_show", {"project": "pr-7", "task_id": t})["attempts"] == 1

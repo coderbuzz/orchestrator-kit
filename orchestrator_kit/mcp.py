@@ -42,11 +42,11 @@ def core_tools(pack: Pack, descriptions: dict | None = None) -> dict[str, dict]:
          "tasks": "List a project's tasks (optionally by status).",
          "task_show": "One task with its result, verification and evidence.",
          "task_add": "Create a task (checks agent, delegation, skill, artifact types, budget, AI selection).",
-         "task_start": "Mark a task RUNNING (dependencies done, attempts left) and get the prompt, the subagent that does it and the `model` to run it on.",
+         "task_start": "Native-subagent path only: mark a task RUNNING and get the prompt, the subagent and the `model`. Refused when the task's AI names another harness (zcode, agy, ...): use `dispatch`.",
          "task_submit": "Submit the subagent's agent-result JSON: policy filter, approval gate, actions once, evidence check. "
                         "Returns COMPLETED, PLANNED (retry with feedback), WAITING_APPROVAL, FAILED or BLOCKED. `usage` only where no SubagentStop hook records it.",
          "task_close": "Cancel or fail a task with a reason.",
-         "dispatch": "Run a task on a worker harness with its AI selection, charge the cost, submit the result.",
+         "dispatch": "Worker path: run a PENDING/PLANNED task on its AI selection's harness (zcode, agy, ...), charge the cost, submit the result. Call it instead of `task_start`; a task already started is taken without a new attempt.",
          "review": "Record an agent-level approval decision taken by the approver agent's review (never the requester's).",
          "approvals": f"Approvals waiting, across all projects or one; `{h}: true` ones need the {h} (the human).",
          "usage": "AI spend of a project: charged (counts against budgets; flat plans 0) and list-price equivalent, today and in total, with recent calls.",
@@ -161,9 +161,13 @@ class Server:
 
     def _task_start(self, _, a):
         c = self.company(a["project"])
-        t = c.start(a["task_id"], actor=c.actor)
+        t = c.task(a["task_id"])
         agent = c.reg.agents[t["assigned_agent"]]
-        _, prompt = c.prompt(t, agent, c.reg.agent_skill(agent["id"], t["skill"]) if t.get("skill") else None)
+        skill = c.reg.agent_skill(agent["id"], t["skill"]) if t.get("skill") else None
+        if (h := c.reg.ai_for(agent["id"], skill, t.get("ai")).get("harness")) not in (None, "claude-code"):
+            raise Refused(f"task {t['task_id']} runs on worker harness '{h}', not a native subagent: call `dispatch`, not `task_start`")
+        t = c.start(a["task_id"], actor=c.actor)
+        _, prompt = c.prompt(t, agent, skill)
         return {"task_id": t["task_id"], "subagent": c.subagent_name(agent["id"]), "attempt": t["attempts"],
                 "model": c.reg.native_model(agent["id"], t.get("skill"), t.get("ai")),  # pass to the Agent tool
                 "ai": c.reg.ai_for(agent["id"], None, t.get("ai")),

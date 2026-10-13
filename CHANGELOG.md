@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+Fix:
+- `task_start` refuses a task whose resolved AI names a harness other than claude-code (it used to hand out a native
+  `subagent_prompt` anyway): the error points to `dispatch`; the task stays untouched.
+- `dispatch` takes a task already RUNNING (started earlier) without a second attempt; it used to fail with
+  "RUNNING -> RUNNING is not an allowed transition".
+- Tool descriptions, the generated plugin text and the orchestration skill state which path a task takes.
+
 ## 0.7.0 (2026-10-13)
 Additive:
 - Agent mapping `native` (Board-approved like entries): the Claude model of the session's native subagents per agent and per

@@ -477,7 +477,9 @@ class Runtime:
         cap = self.reg.policy_params("spending").get("max_cost_usd_per_day")
         if cap is not None and self.daily_spend() >= cap:
             raise Refused(f"budget-control/daily-cap: {self.daily_spend():.2f} >= {cap} USD today")
-        t = self.start(task_id)
+        t = self.task(task_id)
+        if t["status"] != "RUNNING":  # already started by `task_start`: keep its attempt
+            t = self.start(task_id)
         agent = self.reg.agents[t["assigned_agent"]]
         skill = self.reg.agent_skill(agent["id"], t["skill"]) if t.get("skill") else None
         lacking = [c for c in (skill or {}).get("required_capabilities", []) if c not in agent["tools"] or not self.policy.available(c)]
