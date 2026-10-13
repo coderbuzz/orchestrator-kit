@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.1 (2026-10-13)
 Fix:
 - `task_start` refuses a task whose resolved AI names a harness other than claude-code (it used to hand out a native
   `subagent_prompt` anyway): the error points to `dispatch`; the task stays untouched.
