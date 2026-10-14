@@ -1,16 +1,17 @@
 # Harnesses this company may use. Enable others once installed (zh = zcode, agy, dsh).
 harnesses:
-- {id: claude-code, enabled: true, default_model: sonnet, timeout_seconds: 1800}
+- {id: claude-code, enabled: true, default_model: sonnet}
 - id: zcode
   enabled: false
   default_model: configured
-  timeout_seconds: 1800
   estimated_cost_usd_per_call: 0.05
-- {id: agy, enabled: false, default_model: gemini-3.8-flash-high, timeout_seconds: 1800}
+- {id: agy, enabled: false, default_model: gemini-3.8-flash-high}
 - id: dsh
   enabled: false
   default_model: deepseek-flash
-  timeout_seconds: 1800
   estimated_cost_usd_per_call: 0.01
 default_model_policy: default
 fallback: {max_candidates_per_attempt: 4, circuit_breaker_failures: 3, circuit_breaker_seconds: 600}
+# Progress supervisor (defaults shown; every key optional). A worker is stopped only when stuck or looping, never for being slow;
+# max_wall_seconds is a very loose safety ceiling for the whole run (a task's budget.max_wall_seconds overrides it).
+supervisor: {stuck_minutes: 10, loop_repeats: 6, error_repeats: 5, no_progress_minutes: 15, max_wall_seconds: 10800}
