@@ -1,5 +1,8 @@
 # Changelog
 
+## Unreleased
+- New evidence check `deploy_version` (library `deployment.version`): a deploy tool's version id is never a git commit. Rejects 7-40 hex characters (a git SHA) and any value equal to `evidence.sha`/`commit`. Shape only: matching the id against the deploy tool is a pack's job (add a `deploy_version` entry to `Runtime.evidence_checks`).
+
 ## 0.9.1 (2026-10-14)
 From the first real runs of 0.9.0 (sirkel, tasks of 27-35 min):
 - `dispatch` (and `task_start` on a worker task) no longer holds the orchestrator's MCP call until the worker ends. It starts the worker, waits up to `wait_seconds` (default 5) and returns `{"status": "RUNNING"}` or, if the worker already finished, the settled result. The run settles by itself on a background thread (charge, submit, COMPLETED / PLANNED / FAILED / BLOCKED); a server that exits leaves the detached worker to the next server's `reconcile`. `run_log` answers while it runs. A task that already has a worker is refused. `Runtime.dispatch` stays synchronous; `Runtime.dispatch_bg` is the new one. A tool call that only the orchestrator's own turn could not return before (a 35-min `dispatch` blocked a parallel `run_log`) now returns at once.

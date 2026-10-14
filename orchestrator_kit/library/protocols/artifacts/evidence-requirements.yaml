@@ -3,6 +3,7 @@
 # check: list (min_items), number (min/max), string, int, bool, object; equals: exact value.
 # special: git_commit = sha exists in the git repo at evidence.repository (inside the task workspace)
 #          http_ok    = GET evidence.url returns 2xx (independent health check)
+#          deploy_version = a deploy tool's version id, not a git commit (7-40 hex, or equal to evidence.sha/commit)
 #          sources    = every item is an http(s) URL or an artifact id
 version: 1.0.0
 default: [{key: summary, check: string}]
@@ -24,7 +25,7 @@ types:
   qa_report:              [{key: verdict, check: string}, {key: checks, check: list, min_items: 1}]
   security_review:        [{key: verdict, check: string}, {key: findings, check: list}, {key: max_severity, check: string}]
   release_report:         [{key: verdict, check: string}, {key: checks, check: list, min_items: 1}, {key: rollback_procedure, check: string}]
-  deployment:             [{key: environment, check: string}, {key: url, check: string, special: http_ok}, {key: version, check: string}]
+  deployment:             [{key: environment, check: string}, {key: url, check: string, special: http_ok}, {key: version, check: string, special: deploy_version}]
   gtm_plan:               [{key: target_segment, check: string}, {key: positioning, check: string}, {key: channels, check: list, min_items: 1}]
   content:                [{key: channel, check: string}, {key: publication_status, check: string}]
   campaign:               [{key: channel, check: string}, {key: publication_status, check: string}, {key: metrics, check: object}]

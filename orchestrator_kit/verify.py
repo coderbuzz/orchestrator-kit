@@ -5,6 +5,7 @@ protocols/artifacts/evidence-requirements.yaml (with special checks that look at
 URL answers 2xx, sources are URLs), and a decision that picks one of the allowed options.
 Independent (LLM) verification is a separate task the orchestrator session gives another agent.
 """
+import re
 import subprocess
 import urllib.error
 import urllib.request
@@ -42,9 +43,19 @@ def _http_ok(key: str, value, evidence: dict, workspace: Path | None, known_ids:
         return f"{key}: health check failed ({type(e).__name__}: {e})"
 
 
+def _deploy_version(key: str, value, evidence: dict, workspace: Path | None, known_ids: set) -> str | None:
+    """A deploy tool's version id (a UUID, a release tag) is never a git commit: reject 7-40 hex chars and any value equal to evidence.sha/commit."""
+    v = value.strip()
+    if not v:
+        return f"{key}: empty"
+    if re.fullmatch(r"[0-9a-fA-F]{7,40}", v) or v in (evidence.get("sha"), evidence.get("commit")):
+        return f"{key}: '{v}' looks like a git commit; use the version id the deploy tool printed"
+    return None
+
+
 # `special` checks: fn(key, value, evidence, workspace, known_ids) -> problem or None. A pack adds its own through
 # Runtime.evidence_checks; a rule naming a check nobody registered fails (never passes unchecked).
-CHECKS = {"sources": _sources, "git_commit": _git_commit, "http_ok": _http_ok}
+CHECKS = {"sources": _sources, "git_commit": _git_commit, "http_ok": _http_ok, "deploy_version": _deploy_version}
 
 
 def check_evidence(rules: dict, art_type: str, evidence: dict, workspace: Path | None = None, known_ids: set = frozenset(),
