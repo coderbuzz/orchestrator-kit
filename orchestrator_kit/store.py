@@ -107,6 +107,19 @@ class Store:
         with self.tx(), open(p, "a") as f:
             f.write(redact(json.dumps(rec, default=str)) + "\n")
 
+    def last_seq(self, log: str) -> int:
+        """`seq` of the last record of an append-only log (0 if none). Reads the tail only, so it stays cheap on a long log."""
+        p = self.path / log
+        if not p.exists():
+            return 0
+        with open(p, "rb") as f:
+            f.seek(max(0, p.stat().st_size - 8192))
+            last = [x for x in f.read().splitlines() if x.strip()][-1:]
+        try:
+            return int(json.loads(last[0]).get("seq", 0)) if last else 0
+        except ValueError:  # a torn tail line: count on from the number of lines
+            return len(p.read_text().splitlines())
+
     def read_log(self, log: str, limit: int | None = None) -> list[dict]:
         p = self.path / log
         if not p.exists():

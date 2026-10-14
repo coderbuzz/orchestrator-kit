@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.0 (2026-10-14)
+Lifecycle events for a dashboard (design: `docs/dashboard-events.md`, layer A: written by the kit itself, no model, no prompt change).
+- The runtime appends `kit-event/1` lines to `<state>/events.jsonl` with a per-project `seq` (gap-free, readers resume with `after=<seq>`) and `run` = `<task>#<attempt>` on every line: `task.start` (objective; also a restart after BLOCKED, not a resume after an approval), `task.end` (status, result summary or reason, cost, `next` = the dependents that are now ready, only when this task COMPLETED, else the agent's next open tasks), `project.done` (all tasks terminal: counts, cost), `task.status` (other transitions), `gate` (approval requested/granted/rejected), `run.start` (harness, model, provider, effort; when it follows a failed attempt (next route or corrective retry) `prior_attempt` = harness, model, error, stop, plus `workdir` summary) and `run.end` (harness, model, ok, cause `error` = `exit N: <stderr tail>`, stop kind, tokens, charged and equivalent cost, duration). Both run events are written live, the moment each attempt starts and ends (`Router.call_with_fallback(on_attempt=)`; an attempt that made no call, e.g. an unsupported or skipped route, has a `run.end` only), also for a worker adopted after a server restart (`run.end`). Text is one redacted line, capped.
+- A failed write of `events.jsonl` (OSError) is swallowed: observability never blocks a task transition.
+- Not yet: no classifier/hook `gate` (the auto-mode classifier never reaches the kit and the hook has no task context), no supervisor `tool.call`/`run.tick` events, no reader (`office.py`). Those are the next steps in the design's order.
+
 ## 0.9.2 (2026-10-14)
 - New evidence check `deploy_version` (library `deployment.version`): a deploy tool's version id is never a git commit. Rejects 7-40 hex characters (a git SHA) and any value equal to `evidence.sha`/`commit`. Shape only: matching the id against the deploy tool is a pack's job (add a `deploy_version` entry to `Runtime.evidence_checks`).
 
