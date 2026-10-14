@@ -556,11 +556,14 @@ class Router:
             h["since"] = h["since"] or time.time()
 
     def call_with_fallback(self, policy_id: str, req: Request, invoke_fn=invoke, which=None, ai: dict | None = None,
-                           fallbacks: list[dict] | None = None) -> list[CallResult]:
+                           fallbacks: list[dict] | None = None, on_attempt=None) -> list[CallResult]:
         """All attempts in order; the last one is the outcome. Raises Unavailable if nothing is routable.
         A route that cannot honour the selection (provider/model/effort) is recorded as a failed attempt without a call.
         An answer with no result object or one that breaks the contract gets ONE corrective retry on the same route
-        (the rejection reason is fed back) before the next route is tried."""
+        (the rejection reason is fed back) before the next route is tried.
+        `on_attempt("start", {harness, model, provider, effort, prior})` runs right before each call and `on_attempt("end", result)` right after
+        each recorded attempt (also the ones that made no call), so a caller sees attempts live, not when the list returns."""
+        on_attempt = on_attempt or (lambda kind, x: None)
         routes = self.route(policy_id, ai, fallbacks) if which is None else which
         if not routes:
             raise Unavailable(f"no enabled, installed harness for model policy '{policy_id}'")
@@ -572,6 +575,7 @@ class Router:
             why = unsupported(hdef, model, rt.provider, effort)
             if why:
                 attempts.append(CallResult(False, hdef["id"], model, error=f"unsupported selection: {why}", provider=rt.provider, effort=effort))
+                on_attempt("end", attempts[-1])
                 continue
             left = int(req.timeout_seconds - (time.time() - t0))  # max_wall_seconds is the total for all routes
             if left < 1:
@@ -580,9 +584,11 @@ class Router:
             # stuck or looping one is stopped by the supervisor, so no per-route time cut and no moving on for being slow
             if self.check_installed and (why := self.skip(hdef, model)):  # spent subscription: fail fast, next route (never wait for a reset)
                 attempts.append(CallResult(False, hdef["id"], model, error=f"route skipped: {why}", provider=rt.provider, effort=effort))
+                on_attempt("end", attempts[-1])
                 continue
             this = Request(**{**req.__dict__, "provider": rt.provider, "effort": effort, "timeout_seconds": left})
             for retry in (False, True):
+                on_attempt("start", {"harness": hdef["id"], "model": model, "provider": rt.provider, "effort": effort, "prior": attempts[-1] if attempts else None})
                 r = invoke_fn(hdef, model, this, self.reg.result_schema)
                 r.provider, r.effort = rt.provider, effort
                 r.error = quota.classify(r.error)
@@ -595,6 +601,7 @@ class Router:
                 if not r.stopped:  # a run the supervisor or the ceiling stopped says nothing about the provider's health
                     self._record(hdef["id"], r.ok)
                 attempts.append(r)
+                on_attempt("end", r)
                 if r.stopped:  # stop and report: another route only after a real failure (exit, provider error, quota) or the CEO's decision
                     return attempts
                 if r.ok or retry or not r.error.startswith(RETRYABLE):

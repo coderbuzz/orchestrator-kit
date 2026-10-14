@@ -177,19 +177,23 @@ class Runtime:
     # ------------------------------------------------------------------ events (docs/dashboard-events.md, layer A: written by the kit, no model involved)
     def emit(self, kind: str, t: dict, **extra):
         """Append one `kit-event/1` line to events.jsonl: what happened to a task, with a per-project `seq` a reader can resume from."""
-        with self.store.tx():
-            self.store.append("events.jsonl", {"v": 1, "seq": self.store.last_seq("events.jsonl") + 1, "ts": now(),
-                                               "project": (self.project or {}).get("name"), "task": t["task_id"], "attempt": t["attempts"],
-                                               "agent": t["assigned_agent"], "kind": kind, **extra})
+        try:
+            with self.store.tx():
+                self.store.append("events.jsonl", {"v": 1, "seq": self.store.last_seq("events.jsonl") + 1, "ts": now(),
+                                                   "project": (self.project or {}).get("name"), "run": f"{t['task_id']}#{t['attempts']}", "task": t["task_id"],
+                                                   "attempt": t["attempts"], "agent": t["assigned_agent"], "kind": kind, **extra})
+        except OSError:  # observability never blocks the runtime: a task transition must not fail because the event log could not be written
+            pass
 
     def _lifecycle(self, t: dict, prev: str, status: str, why: str):
         text = lambda s, n: supervisor.clean(s, n)  # noqa: E731  one redacted line
-        if status == "RUNNING" and prev in ("PENDING", "PLANNED"):
+        if status == "RUNNING" and prev != "WAITING_APPROVAL":
             return self.emit("task.start", t, state="working", objective=text(t["objective"], 200))
         if status in ("COMPLETED", "FAILED", "CANCELLED", "BLOCKED"):
             open_ = ("PENDING", "PLANNED")
             tasks = self.store.all("tasks")
-            nxt = [x for x in tasks if t["task_id"] in x["dependencies"] and x["status"] in open_] or \
+            done = {x["task_id"] for x in tasks if x["status"] == "COMPLETED"}  # a dependent is next only when this task completed and its other dependencies did too
+            nxt = [x for x in tasks if status == "COMPLETED" and t["task_id"] in x["dependencies"] and x["status"] in open_ and set(x["dependencies"]) <= done] or \
                   sorted((x for x in tasks if x["assigned_agent"] == t["assigned_agent"] and x["status"] in open_), key=lambda x: x["created_at"])
             self.emit("task.end", t, state={"COMPLETED": "done", "FAILED": "failed"}.get(status, "stopped"), status=status,
                       summary=text(((t.get("result") or {}).get("summary") if status == "COMPLETED" else why) or why, 300),
@@ -488,7 +492,7 @@ class Runtime:
             self.store.put("approvals", a)
             t = self.task(a["task_id"])
             self.audit(by, "approve" if granted else "reject", note or "-", t, approval_id=approval_id)
-            self.emit("gate", t, state="waiting", gate="approval", decision="granted" if granted else "rejected", action=supervisor.clean(a["action"], 200), by=by)
+            self.emit("gate", t, state="working" if granted else "failed", gate="approval", decision="granted" if granted else "rejected", action=supervisor.clean(a["action"], 200), by=by)
             if t["status"] != "WAITING_APPROVAL":
                 return {"status": t["status"], "notes": []}
             if not granted:
@@ -603,9 +607,23 @@ class Runtime:
         policy_id = self.reg.model_policy_for(agent["id"], skill, t.get("model_policy"))
         return req, ai, policy_id, agent, skill
 
+    def _run_end(self, task_id: str, a, ai: dict):
+        self.emit("run.end", self.task(task_id), state="working" if a.ok else "failed", harness=a.harness, model=a.model, provider=a.provider, effort=a.effort or ai.get("effort"),
+                  ok=a.ok, error=supervisor.clean(a.error, 300) or None, stop=a.stopped or None, tokens=a.tokens or None,
+                  cost_usd=a.cost_usd, equivalent_cost_usd=a.equivalent_cost_usd, duration_s=round(a.duration_s, 1))
+
     def _execute(self, task_id: str, req, ai: dict, policy_id: str, agent: dict, skill):
+        def on_attempt(kind: str, x):  # runs on the worker thread, outside the store lock: `task()` is re-read so `attempt` is current
+            if kind == "end":
+                return self._run_end(task_id, x, ai)
+            prior, extra = x.pop("prior"), {}
+            if prior:
+                extra = {"prior_attempt": {"harness": prior.harness, "model": prior.model, "error": supervisor.clean(prior.error, 300), "stop": prior.stopped or None}}
+                if wd := supervisor.workdir_summary(req.cwd):
+                    extra["workdir"] = wd
+            self.emit("run.start", self.task(task_id), state="working", **x, **extra)
         try:
-            attempts = self.router.call_with_fallback(policy_id, req, self.invoke, ai=ai,
+            attempts = self.router.call_with_fallback(policy_id, req, self.invoke, ai=ai, on_attempt=on_attempt,
                                                       fallbacks=self.reg.mapped_fallbacks(agent["id"], (skill or {}).get("id")))
         except harness.Unavailable as e:
             with self.store.tx():
@@ -630,9 +648,6 @@ class Runtime:
                                                   "model": a.model, "provider": a.provider, "effort": a.effort or ai.get("effort"), "tokens": a.tokens, "cost_usd": a.cost_usd, "equivalent_cost_usd": a.equivalent_cost_usd, "estimated": a.cost_estimated,
                                                   "ok": a.ok, "duration_s": round(a.duration_s, 1), "error": a.error[:300]})
                 t["cost_usd"] = round(t["cost_usd"] + a.cost_usd, 6)
-                self.emit("run.end", t, state="working" if a.ok else "failed", harness=a.harness, model=a.model, provider=a.provider, effort=a.effort or ai.get("effort"),
-                          ok=a.ok, error=supervisor.clean(a.error, 300) or None, stop=a.stopped or None, tokens=a.tokens or None,
-                          cost_usd=a.cost_usd, equivalent_cost_usd=a.equivalent_cost_usd, duration_s=round(a.duration_s, 1))
             self.store.put("tasks", t)
             self._budget_warning()
             last = attempts[-1]
@@ -730,7 +745,9 @@ class Runtime:
         r.provider, r.effort = rec["provider"], rec["effort"]
         t = self.task(task_id)
         agent = self.reg.agents[t["assigned_agent"]]
-        self._settle(task_id, [r], self.reg.ai_for(agent["id"], self.reg.agent_skill(agent["id"], t["skill"]) if t.get("skill") else None, t.get("ai")))
+        ai = self.reg.ai_for(agent["id"], self.reg.agent_skill(agent["id"], t["skill"]) if t.get("skill") else None, t.get("ai"))
+        self._run_end(task_id, r, ai)
+        self._settle(task_id, [r], ai)
 
     def _budget_warning(self):
         """Tell the human once a day when spend reaches BUDGET_WARNING of the daily cap (the cap itself refuses dispatch)."""
