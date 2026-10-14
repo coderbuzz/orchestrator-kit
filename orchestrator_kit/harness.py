@@ -21,6 +21,7 @@ from pathlib import Path
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 
+from . import quota
 from .registry import Registry
 from .supervisor import Limits, Supervisor
 from .validate import AI_SCHEMA, load, schema_file, validator_for
@@ -514,6 +515,8 @@ class Router:
         self.cfg = reg.config["models"]
         self._validator = validator_for(reg.result_schema, reg.root)
 
+    skip = staticmethod(quota.skip_reason)  # tests replace it
+
     def _breaker_open(self, harness_id: str) -> bool:
         fb = self.cfg.get("fallback") or {}
         h = self.health.get(harness_id) or {}
@@ -575,10 +578,14 @@ class Router:
                 break
             # `left` is only the safety ceiling (max_wall_seconds, total for all routes): a worker that makes progress is never cut short and a
             # stuck or looping one is stopped by the supervisor, so no per-route time cut and no moving on for being slow
+            if self.check_installed and (why := self.skip(hdef, model)):  # spent subscription: fail fast, next route (never wait for a reset)
+                attempts.append(CallResult(False, hdef["id"], model, error=f"route skipped: {why}", provider=rt.provider, effort=effort))
+                continue
             this = Request(**{**req.__dict__, "provider": rt.provider, "effort": effort, "timeout_seconds": left})
             for retry in (False, True):
                 r = invoke_fn(hdef, model, this, self.reg.result_schema)
                 r.provider, r.effort = rt.provider, effort
+                r.error = quota.classify(r.error)
                 if r.ok and r.cost_estimated and hdef.get("cost_reporting") in ("none", "tokens"):  # unpriced route: config estimate
                     r.cost_usd = r.equivalent_cost_usd = hcfg.get("estimated_cost_usd_per_call") or 0.0
                 if r.ok:
