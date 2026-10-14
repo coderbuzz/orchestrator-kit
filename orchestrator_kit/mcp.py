@@ -280,11 +280,15 @@ def serve(server: Server) -> int:
         if reply is not None:
             server.send(reply)
 
+    calls = []
     for line in sys.stdin:
         if line.strip():
             msg = json.loads(line)
             if msg.get("method") == "tools/call":
-                threading.Thread(target=answer, args=(msg,), daemon=True).start()
+                calls.append(threading.Thread(target=answer, args=(msg,), daemon=True))
+                calls[-1].start()
             else:
                 answer(msg)
+    for t in calls:  # stdin closed: answer what is in flight, but never hold the exit for a long dispatch (its worker is detached and settled by the next server)
+        t.join(10)
     return 0
