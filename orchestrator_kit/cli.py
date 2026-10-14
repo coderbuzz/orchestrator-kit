@@ -15,6 +15,9 @@ def main(argv: list[str] | None = None) -> int:
     if argv[:1] == ["tail"]:  # watch a worker's activity log; stdlib only
         from .tail import main as tail_main
         return tail_main(argv[1:])
+    if argv[:1] == ["office"]:  # state of every desk, for the office dashboard; stdlib only
+        from .office import main as office_main
+        return office_main(argv[1:])
     if argv[:1] == ["usage-hook"]:  # SubagentStop only (rare): imports the runtime lazily
         from .usage import hook_main as usage_main
         return usage_main(argv[1])

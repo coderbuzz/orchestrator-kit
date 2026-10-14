@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.0 (2026-10-15)
+The reader for the office dashboard (design: `docs/dashboard-events.md` step 3, §3).
+- `orchestrator_kit/office.py`: `snapshot(state_dir)` (desks of the hired team with a state `working`/`slow`/`waiting`/`stuck`/`stopped`/`done`/`failed`/`idle`, run cards, queue per agent, pending approvals, recent results, `generated_at`, `last_event_age_s`, runner `alive`/`orphaned`/`dead`) and `events(state_dir, after_seq, limit)` (field allowlist). Read-only: no store lock, reads `events.jsonl` from a byte offset, leaves a partial last line, skips a torn line, tolerates seq gaps and a replaced file.
+- CLI `orchestrator-kit office <project dir> [--json] [--after N] [--limit N]`, stdlib only (fast path like `tail`).
+- `Runtime.for_project` writes `<state>/roster.json` (hired agents with their department) when it changed, so the reader needs no pack.
+- `store` imports `validate` lazily: `store`, `supervisor` and `office` are stdlib-only at import.
+- Retention decided (design §7): nothing pruned yet; the future rule keeps lifecycle events and seq values.
+
 ## 0.11.0 (2026-10-14)
 Supervisor events (design: `docs/dashboard-events.md` step 2, layer B: G1 + G7).
 - The supervisor writes to the same `<state>/events.jsonl` as the runtime (same `seq`, `run` = `<task>#<attempt>`, `harness` on each line): `tool.call` (tool, target, model_s), `tool.error` (tool, msg), `workdir.change` (summary), `run.tick` at most every 30 s (state `working`/`slow` (quiet for half of `stuck_minutes`), elapsed_s, cpu_idle_s, calls, last_alive_age_s, tokens when the harness log has them) and `run.stop` (stop.kind `stuck`/`loop`/`manual`/`wall`, short reason, last_call; before the attempt's `run.end`). Tool calls and errors exist for zcode only, as before; other harnesses get `workdir.change`, `run.tick` and `run.stop`.

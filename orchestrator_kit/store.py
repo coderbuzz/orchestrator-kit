@@ -19,8 +19,6 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import validate as v
-
 SECRET_PATTERNS = [r"ghp_[A-Za-z0-9]{20,}", r"github_pat_[A-Za-z0-9_]{20,}", r"sk-[A-Za-z0-9_-]{20,}", r"AKIA[0-9A-Z]{16}",
                    r"-----BEGIN [A-Z ]*PRIVATE KEY-----", r"xox[bp]-[A-Za-z0-9-]{10,}", r"AIza[0-9A-Za-z_-]{30,}"]
 _SECRET_RE = re.compile("|".join(SECRET_PATTERNS))
@@ -76,6 +74,7 @@ class Store:
 
     # documents
     def put(self, coll: str, obj: dict, key: str | None = None) -> dict:
+        from . import validate as v
         kind = SCHEMAS.get(coll)
         if kind:
             errs = v.validate_instance(kind, obj, self.root)
@@ -140,6 +139,7 @@ class Store:
         return json.loads(p.read_text()) if p.exists() else {}
 
     def save_company(self, state: dict):
+        from . import validate as v
         state["as_of"] = now()
         errs = v.validate_instance("company-state", state, self.root)
         if errs:
