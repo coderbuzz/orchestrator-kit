@@ -17,6 +17,7 @@ import signal
 import subprocess
 import tempfile
 import time
+from pathlib import Path
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -35,6 +36,8 @@ class Request:
     provider: str | None = None
     effort: str | None = None
     on_progress: Callable[[dict], None] | None = None  # called every PROGRESS_SECONDS while the worker runs
+    run_dir: str | None = None  # persist the worker's pid record, output and exit code here (<run_id>.json/.out/.err/.rc) so a restarted server can adopt it
+    run_id: str = "worker"
 
 
 @dataclass
@@ -357,24 +360,44 @@ def _tree_cpu(sid: int) -> tuple[int, int]:
     return n, ticks
 
 
-def _kill_tree(p: subprocess.Popen):
+def pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def tree_alive(sid: int) -> bool:
+    return _tree_cpu(sid)[0] > 0
+
+
+def kill_group(pgid: int):
     for sig in (signal.SIGTERM, signal.SIGKILL):
         try:
-            os.killpg(p.pid, sig)
+            os.killpg(pgid, sig)
         except ProcessLookupError:
             return
-        try:
-            p.wait(5)
-            return
-        except subprocess.TimeoutExpired:
-            continue
+        for _ in range(50):
+            if not tree_alive(pgid):
+                return
+            time.sleep(0.1)
 
 
-def run_worker(argv, req: Request, out, errf, poll: float = 1.0) -> int:
+def _kill_tree(p: subprocess.Popen):
+    kill_group(p.pid)
+    p.wait()
+
+
+def run_worker(argv, req: Request, out, errf, poll: float = 1.0, record: Path | None = None, meta: dict | None = None) -> int:
     """Run the worker in its own session so the wall limit kills its whole process tree (subprocess.run's timeout killed
     only the direct child and then hung while a grandchild held the stderr pipe). While it runs, `req.on_progress` gets
     elapsed seconds, stdout bytes, process count and whether the tree has used no CPU for STALL_SECONDS. Raises TimeoutExpired."""
     p = subprocess.Popen(argv, cwd=req.cwd, stdout=out, stderr=errf, text=True, stdin=subprocess.DEVNULL, start_new_session=True)
+    if record:  # the owner (this server) may die; the worker keeps running and the next server settles it from these files
+        record.write_text(json.dumps({**(meta or {}), "pid": p.pid, "owner": os.getpid(), "started": time.time(), "limit": req.timeout_seconds, "done": False}))
     t0 = last_tick = last_cpu = time.time()
     ticks = -1
     while True:
@@ -407,25 +430,34 @@ def invoke(hdef: dict, model: str, req: Request, schema: dict) -> CallResult:
         return CallResult(False, hdef["id"], model, error=f"{hdef['id']} version {v or 'unknown'} does not match the pinned {pin}")
     argv = builder(hdef, model, req, schema) + selection_args(hdef, model, req)
     t0 = time.time()
-    with tempfile.TemporaryFile("w+") as out, tempfile.TemporaryFile("w+") as errf:
-        try:
-            returncode = run_worker(argv, req, out, errf)
-        except subprocess.TimeoutExpired:
-            return CallResult(False, hdef["id"], model, error=f"timeout after {req.timeout_seconds}s (worker process group killed)", duration_s=time.time() - t0)
-        except OSError as e:
-            return CallResult(False, hdef["id"], model, error=f"cannot start harness: {e}")
-        out.seek(0)
-        stdout = out.read()
-        errf.seek(0)
-        stderr = errf.read()
-    price = price_for(hdef, req.provider, model)
+    with tempfile.TemporaryDirectory() as tmp:
+        rd = Path(req.run_dir or tmp)
+        rd.mkdir(parents=True, exist_ok=True)
+        base = rd / req.run_id
+        base.with_suffix(".rc").unlink(missing_ok=True)  # never a previous attempt's exit code
+        wrapped = ["sh", "-c", '"$@"; rc=$?; echo $rc > "$0"; exit $rc', str(base.with_suffix(".rc")), *argv]
+        meta = {"harness": hdef["id"], "model": model, "provider": req.provider, "effort": req.effort}
+        with open(base.with_suffix(".out"), "w+") as out, open(base.with_suffix(".err"), "w+") as errf:
+            try:
+                returncode = run_worker(wrapped, req, out, errf, record=base.with_suffix(".json") if req.run_dir else None, meta=meta)
+            except subprocess.TimeoutExpired:
+                return CallResult(False, hdef["id"], model, error=f"timeout after {req.timeout_seconds}s (worker process group killed)", duration_s=time.time() - t0)
+            except OSError as e:
+                return CallResult(False, hdef["id"], model, error=f"cannot start harness: {e}")
+        stdout, stderr = base.with_suffix(".out").read_text(), base.with_suffix(".err").read_text()
+    return collect(hdef, model, req.provider, stdout, stderr, returncode, time.time() - t0)
+
+
+def collect(hdef: dict, model: str, provider: str | None, stdout: str, stderr: str, returncode: int, duration_s: float) -> CallResult:
+    """A finished worker's files -> CallResult (also used to settle a worker a previous server left running)."""
+    price = price_for(hdef, provider, model)
     output, listed, err = parse(hdef["id"], stdout, price)
     cost, equivalent = billing(price, listed)
     usage = usage_of(hdef["id"], stdout)
     if returncode != 0 and (not err or not stdout.strip()):
         err = f"exit {returncode}: {stderr.strip()[-300:] or err}"
     return CallResult(not err, hdef["id"], model, output=output, error=err, cost_usd=cost or 0.0,
-                      cost_estimated=cost is None, equivalent_cost_usd=equivalent, duration_s=time.time() - t0, raw=stdout[-4000:],
+                      cost_estimated=cost is None, equivalent_cost_usd=equivalent, duration_s=duration_s, raw=stdout[-4000:],
                       tokens={k: usage[k] for k in ("inputTokens", "outputTokens", "cacheWriteTokens", "cacheReadTokens", "reasoningTokens") if k in usage})
 
 

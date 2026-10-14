@@ -13,6 +13,9 @@ Organization-specific behavior (company state, decisions, products, deploy gates
 a pack subclasses Runtime and overrides only those.
 """
 import json
+import os
+import threading
+import time
 from pathlib import Path
 
 import yaml
@@ -493,7 +496,8 @@ class Runtime:
         caps = [c for c in agent["tools"] if self.reg.capabilities[c].get("adapter") == "harness"]
         budget = t["budget"]["max_cost_usd"]
         req = harness.Request(system, prompt, str(self._workspace(t)), caps, max(budget, 0.01) if budget is not None else None,
-                              t["budget"]["max_wall_seconds"] or 1800, on_progress=self.on_progress)
+                              t["budget"]["max_wall_seconds"] or 1800, on_progress=self.on_progress,
+                              run_dir=str(self.store.path / "runs"), run_id=task_id)
         ai = self.reg.ai_for(agent["id"], skill, t.get("ai"))
         policy_id = self.reg.model_policy_for(agent["id"], skill, t.get("model_policy"))
         try:
@@ -506,6 +510,10 @@ class Runtime:
                 t["blocked_reason"] = f"harness unavailable: {e}"
                 self._set(t, "BLOCKED", t["blocked_reason"])
             return {"status": "BLOCKED", "notes": [t["blocked_reason"]]}
+        return self._settle(task_id, attempts, ai)
+
+    def _settle(self, task_id: str, attempts: list, ai: dict) -> dict:
+        """Charge and record a worker's attempts, then submit the last result (or retry/fail the task)."""
         with self.store.tx():
             self.store.put("runtime", self.router.health, key="health")
             t = self.task(task_id)
@@ -518,8 +526,54 @@ class Runtime:
             self._budget_warning()
             last = attempts[-1]
             if not last.ok:
+                self._mark_run(task_id)
                 return self._retry_or_fail(t, f"all model candidates failed; last: {last.harness}/{last.model}: {last.error}")
+        self._mark_run(task_id)
         return self.submit(task_id, last.output)
+
+
+    # ------------------------------------------------------------------ workers that outlive the server
+    def _run_file(self, task_id: str) -> Path:
+        return self.store.path / "runs" / f"{task_id}.json"
+
+    def _mark_run(self, task_id: str):
+        f = self._run_file(task_id)
+        if f.exists():
+            f.write_text(json.dumps({**json.loads(f.read_text()), "done": True}))
+
+    def reconcile(self) -> list[str]:
+        """On server start: settle RUNNING tasks whose worker an earlier server left behind (record not done, its owner dead).
+        A worker still alive is awaited here (killed at its wall limit); a finished one is collected from its files; one that
+        left nothing fails the task with the reason. Returns the task ids taken over."""
+        taken = []
+        for t in self.store.all("tasks"):
+            f = self._run_file(t["task_id"])
+            if t["status"] != "RUNNING" or not f.exists():
+                continue
+            rec = json.loads(f.read_text())
+            if rec["done"] or rec["owner"] == os.getpid() or harness.pid_alive(rec["owner"]):
+                continue
+            taken.append(t["task_id"])
+            threading.Thread(target=self._adopt, args=(t["task_id"], rec), daemon=True).start()
+        return taken
+
+    def _adopt(self, task_id: str, rec: dict):
+        base = self._run_file(task_id).with_suffix("")
+        while harness.tree_alive(rec["pid"]) and time.time() - rec["started"] < rec["limit"]:
+            time.sleep(2)
+        if harness.tree_alive(rec["pid"]):
+            harness.kill_group(rec["pid"])
+        hdef = self.reg.harnesses[rec["harness"]]
+        rc = base.with_suffix(".rc")
+        if rc.exists():
+            r = harness.collect(hdef, rec["model"], rec["provider"], base.with_suffix(".out").read_text(), base.with_suffix(".err").read_text(),
+                                int(rc.read_text() or 1), time.time() - rec["started"])
+        else:
+            r = harness.CallResult(False, hdef["id"], rec["model"], error="worker lost: the server that started it stopped and the worker did not finish in time")
+        r.provider, r.effort = rec["provider"], rec["effort"]
+        t = self.task(task_id)
+        agent = self.reg.agents[t["assigned_agent"]]
+        self._settle(task_id, [r], self.reg.ai_for(agent["id"], self.reg.agent_skill(agent["id"], t["skill"]) if t.get("skill") else None, t.get("ai")))
 
     def _budget_warning(self):
         """Tell the human once a day when spend reaches BUDGET_WARNING of the daily cap (the cap itself refuses dispatch)."""
