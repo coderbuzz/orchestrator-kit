@@ -89,6 +89,7 @@ def test_next_lists_dependents_only_when_the_task_completed_and_they_are_ready(t
     dep = mk("needs first", after=[first])
     c.cancel(first, "not needed")
     assert other in nxt(first), "a cancelled task unblocks nothing: next falls back to the agent's own open tasks"
+    assert dep not in nxt(first), "a task waiting on a cancelled one can never run, so it is not next either"
     ok, blocker = mk("ok"), mk("blocker")
     d1, d2 = mk("d1", after=[ok]), mk("d2", after=[ok, blocker])
     c.start(ok)

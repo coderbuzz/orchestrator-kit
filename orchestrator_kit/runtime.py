@@ -192,9 +192,10 @@ class Runtime:
         if status in ("COMPLETED", "FAILED", "CANCELLED", "BLOCKED"):
             open_ = ("PENDING", "PLANNED")
             tasks = self.store.all("tasks")
-            done = {x["task_id"] for x in tasks if x["status"] == "COMPLETED"}  # a dependent is next only when this task completed and its other dependencies did too
+            done = {x["task_id"] for x in tasks if x["status"] == "COMPLETED"}
+            dead = {x["task_id"] for x in tasks if x["status"] in ("FAILED", "CANCELLED")}  # a task waiting on these can never run  # a dependent is next only when this task completed and its other dependencies did too
             nxt = [x for x in tasks if status == "COMPLETED" and t["task_id"] in x["dependencies"] and x["status"] in open_ and set(x["dependencies"]) <= done] or \
-                  sorted((x for x in tasks if x["assigned_agent"] == t["assigned_agent"] and x["status"] in open_), key=lambda x: x["created_at"])
+                  sorted((x for x in tasks if x["assigned_agent"] == t["assigned_agent"] and x["status"] in open_ and not set(x["dependencies"]) & dead), key=lambda x: x["created_at"])
             self.emit("task.end", t, state={"COMPLETED": "done", "FAILED": "failed"}.get(status, "stopped"), status=status,
                       summary=text(((t.get("result") or {}).get("summary") if status == "COMPLETED" else why) or why, 300),
                       cost_usd=t["cost_usd"], next=[{"task": x["task_id"], "objective": text(x["objective"], 120)} for x in nxt[:3]])
