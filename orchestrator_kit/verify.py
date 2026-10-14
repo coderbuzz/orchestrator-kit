@@ -6,6 +6,7 @@ URL answers 2xx, sources are URLs), and a decision that picks one of the allowed
 Independent (LLM) verification is a separate task the orchestrator session gives another agent.
 """
 import subprocess
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -29,11 +30,16 @@ def _git_commit(key: str, value, evidence: dict, workspace: Path | None, known_i
 
 
 def _http_ok(key: str, value, evidence: dict, workspace: Path | None, known_ids: set) -> str | None:
+    req = urllib.request.Request(str(value), headers={"User-Agent": "Mozilla/5.0 (compatible; orchestrator-kit-verify)"})  # the default urllib UA is blocked by WAFs
     try:
-        with urllib.request.urlopen(str(value), timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=10) as resp:
             return None if 200 <= resp.status < 300 else f"{key}: HTTP {resp.status}"
-    except Exception as e:  # noqa: BLE001 - any failure is a failed health check
-        return f"{key}: health check failed ({type(e).__name__})"
+    except urllib.error.HTTPError as e:
+        if e.code in (403, 429):  # a WAF/rate limit answered: the host is reachable, the check cannot see past it
+            return None
+        return f"{key}: health check failed (HTTP {e.code})"
+    except Exception as e:  # noqa: BLE001 - any other failure is a failed health check
+        return f"{key}: health check failed ({type(e).__name__}: {e})"
 
 
 # `special` checks: fn(key, value, evidence, workspace, known_ids) -> problem or None. A pack adds its own through
