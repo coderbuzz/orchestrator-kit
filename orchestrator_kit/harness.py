@@ -23,7 +23,7 @@ from dataclasses import asdict, dataclass, field
 
 from . import quota
 from .registry import Registry
-from .supervisor import Limits, Supervisor
+from .supervisor import Limits, Supervisor, clean
 from .validate import AI_SCHEMA, load, schema_file, validator_for
 
 
@@ -41,6 +41,7 @@ class Request:
     limits: Limits | None = None  # supervisor thresholds (stuck / loop); None = defaults. timeout_seconds is only the ceiling
     run_dir: str | None = None  # persist the worker's pid record, output and exit code here (<run_id>.json/.out/.err/.rc) so a restarted server can adopt it
     run_id: str = "worker"
+    on_event: Callable[..., None] | None = None  # (kind, **fields): the supervisor's kit-event lines (runtime: Runtime.emit for this task)
 
 
 @dataclass
@@ -465,7 +466,7 @@ def invoke(hdef: dict, model: str, req: Request, schema: dict) -> CallResult:
         base.with_suffix(".stop").unlink(missing_ok=True)  # nor a previous attempt's stop request
         wrapped = ["sh", "-c", '"$@"; rc=$?; echo $rc > "$0"; exit $rc', str(base.with_suffix(".rc")), *argv]
         meta = {"harness": hdef["id"], "model": model, "provider": req.provider, "effort": req.effort}
-        sup = Supervisor(base, req.cwd, hdef["id"], req.limits or Limits(), t0, run_marker(req.run_id))
+        sup = Supervisor(base, req.cwd, hdef["id"], req.limits or Limits(), t0, run_marker(req.run_id), req.on_event)
         sup.note(f"# start {hdef['id']} {model}{' ' + req.effort if req.effort else ''} (ceiling {req.timeout_seconds}s)", t0)
         with open(base.with_suffix(".out"), "w+") as out, open(base.with_suffix(".err"), "w+") as errf:
             try:
@@ -487,6 +488,7 @@ def halted(hdef: dict, model: str, provider: str | None, sup: Supervisor, kind: 
     process prints no usage), priced like a finished call."""
     report = sup.stop_report(kind, reason)
     sup.note(f"# STOPPED ({kind}): {reason}")
+    sup.event("run.stop", state="stuck" if kind in ("stuck", "loop") else "stopped", stop={"kind": kind, "reason": clean(reason, 1500)}, last_call=sup.last)
     tokens = sup.tokens
     price = price_for(hdef, provider, model)
     cost, equivalent = billing(price, token_cost(price, tokens) if tokens else None)

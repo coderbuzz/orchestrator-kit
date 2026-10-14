@@ -1,6 +1,6 @@
 # Design: event format for a visual "office" dashboard
 
-Status: proposal (no code), revised after review: task-level events come from the kit itself, model-written notes are optional, stream-JSON is optional. Goal: one picture of every team and agent at work: who sits where, what each is doing right now, what waits in the queue, what stopped and why.
+Status: steps 1 (0.10.0) and 2 (0.11.0) implemented; the rest is a proposal. Revised after review: task-level events come from the kit itself, model-written notes are optional, stream-JSON is optional. Goal: one picture of every team and agent at work: who sits where, what each is doing right now, what waits in the queue, what stopped and why.
 
 Facts below come from kit 0.9.0 (`supervisor.py`, `runtime.py`, `harness.py`). Things not yet verified are marked **(verify)**.
 
@@ -54,9 +54,9 @@ Required: `v seq ts project run task attempt agent kind state`. Everything else 
 | `tool.call` | worker made a tool call | tool, target (≤100 chars, `clean()`ed), model_s |
 | `tool.error` | tool returned an error | tool, msg (≤160 chars) |
 | `workdir.change` | git fingerprint changed | summary (files changed/new commit) |
-| `run.tick` | supervisor poll, throttled to ~30 s | elapsed_s, cpu_idle_s, calls, last_alive_age_s, tokens (running total if known) |
+| `run.tick` | supervisor poll, throttled to ~30 s | state `working`/`slow`, elapsed_s, cpu_idle_s, calls, last_alive_age_s, tokens (running total if known) |
 | `run.wait` | task enters `WAITING_APPROVAL`, or waits on dependencies | wait_on (`approval:<id>` or `task:<id>`) |
-| `run.stop` | supervisor/manual stop | stop.kind (`stuck`/`loop`/`manual`/`ceiling`), stop.reason (≤1500), last_call |
+| `run.stop` | supervisor/manual stop, or the safety ceiling | stop.kind (`stuck`/`loop`/`manual`/`wall`; `wall` = the `max_wall_seconds` ceiling, same value as `run.end.stop`), stop.reason (≤1500, the short reason; the full report stays in the task), last_call |
 | `run.end` | an attempt ended (written live, before the task settles; also for a route skipped without a call) | ok, error (≤300, redacted; a non-zero exit reads `exit N: <stderr tail>`), stop, tokens, cost_usd, equivalent_cost_usd, duration_s |
 | `gate` | an approval was requested, granted or rejected | gate (`approval`), action (≤200), decision, by. Shown as the approval door |
 | `task.start` | task goes RUNNING (`task_start`/`dispatch`) | objective (≤200 chars, the human line), agent, harness/model if known |
@@ -73,7 +73,7 @@ Required: `v seq ts project run task attempt agent kind state`. Everything else 
 | `slow` | alive but quiet | task `RUNNING`, no sign of life for ≥ half of `stuck_minutes` (warning before the verdict; 5 min with defaults) |
 | `waiting` | waits on a human or a dependency | `WAITING_APPROVAL`, or `PLANNED` with unmet dependencies |
 | `stuck` | supervisor verdict stuck or loop | `run.stop` with kind stuck/loop |
-| `stopped` | stopped on request or ceiling; or `BLOCKED` for another reason | `run.stop` manual/ceiling, `BLOCKED` |
+| `stopped` | stopped on request or ceiling; or `BLOCKED` for another reason | `run.stop` manual/wall, `BLOCKED` |
 | `done` | `COMPLETED` | |
 | `failed` | `FAILED`, all routes failed | |
 | `idle` | roster agent with no active task | snapshot only |
@@ -158,4 +158,4 @@ Steps 1-4 deliver a working office (task level for every harness, live activity 
 
 - Retention: `events.jsonl` grows; rotate per day or cap per run (suggest: keep per-run files, drop `tool.call` older than 7 days, keep lifecycle events).
 - Who may view: the dashboard shows work content only as short targets, but file names can be sensitive; localhost by default, auth is the deployer's job.
-- `seq` assignment when a worker outlives the server (detached workers write events themselves): use a per-run `n` plus a project-level ordering by `ts`, or give detached workers an append-only per-run file that the reader merges. Needs a decision at step 2.
+- ~~`seq` for a worker that outlives the server~~ **Decided at step 2 (0.11.0): one `seq` for everything, no per-run file.** The premise was wrong: a worker process (zcode, agy, ...) never writes events; its supervisor does, and the supervisor always lives in a server: the one that launched the worker, or after a restart the one that adopts it (`Runtime.reconcile` -> `_adopt`). Both write through `Runtime.emit` (`Supervisor(emit=)`, wired by `Runtime._run_events`), so `seq` is taken under the store lock (thread lock + `fcntl` on `.lock`, which also serialises two server processes) and stays gap-free per project. While no server runs, nothing supervises the worker and no events are written; the adopting server resumes `run.tick` and writes `run.stop`/`run.end`. Supervisor lines carry `harness`: the fallback routes of one dispatch share a `run`, so the harness tells them apart.

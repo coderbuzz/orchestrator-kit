@@ -30,6 +30,7 @@ from pathlib import Path
 from .store import redact
 
 DEFAULTS = {"stuck_minutes": 10, "loop_repeats": 6, "error_repeats": 5, "no_progress_minutes": 15, "max_wall_seconds": 10800}
+TICK_SECONDS = 30  # at most one `run.tick` event per run this often
 MIN_CPU_TICKS = 100  # clock ticks (1 s) of CPU in the stuck window: a sleeping tree ticks far less
 ROLLOUT_GLOB = "~/.zcode/cli/rollout/model-io-sess_*.jsonl"
 _KEYS = ("file_path", "path", "command", "pattern", "url", "query", "description", "prompt")
@@ -236,11 +237,15 @@ class Detector:
 # ---------------------------------------------------------------------------------------------- supervisor
 class Supervisor:
     """One per worker run. `poll(now, ticks, out_bytes)` -> None to keep going, or (kind, reason) to stop the worker.
-    Writes the filtered activity log `<base>.activity.log` (one line per tool call) and keeps what a stop report needs."""
+    Writes the filtered activity log `<base>.activity.log` (one line per tool call) and keeps what a stop report needs.
+    With `emit` (the runtime's `kit-event/1` writer, docs/dashboard-events.md layer B) the same signals also go to events.jsonl:
+    tool.call, tool.error, workdir.change, run.tick (every TICK_SECONDS) and run.stop (from `harness.halted`)."""
 
-    def __init__(self, base: Path, cwd: str, harness_id: str, limits: Limits, started: float | None = None, marker: str = ""):
-        self.base, self.cwd, self.lim = Path(base), cwd, limits
+    def __init__(self, base: Path, cwd: str, harness_id: str, limits: Limits, started: float | None = None, marker: str = "",
+                 emit=None):
+        self.base, self.cwd, self.lim, self.harness, self.emit = Path(base), cwd, limits, harness_id, emit
         self.started = started or time.time()
+        self.ticks, self.cpu_at, self.last_tick = None, self.started, self.started
         self.det = Detector(limits, self.started)
         reader = READERS.get(harness_id)
         self.reader = reader(marker, self.started) if reader and marker else None
@@ -258,6 +263,18 @@ class Supervisor:
         with open(self.log, "a") as f:
             f.write(f"{time.strftime('%H:%M:%S', time.localtime(ts or time.time()))}  {text}\n")
 
+    def event(self, kind: str, **fields):
+        """One structured event beside the activity log; fields that are None are left out (absent = not measured)."""
+        if self.emit:
+            try:
+                self.emit(kind, harness=self.harness, **{k: v for k, v in fields.items() if v is not None})
+            except Exception:  # noqa: BLE001  observability never breaks supervision: an exception here would leave the worker unwatched
+                pass
+
+    def state(self, now: float) -> str:
+        """`slow` once the run is quiet for half of stuck_minutes (a warning; only the verdict calls it stuck)."""
+        return "slow" if now - self.det.last_alive >= self.lim.stuck_minutes * 30 else "working"
+
     def poll(self, now: float, ticks: int | None = None, out_bytes: int = 0) -> tuple[str, str] | None:
         if self.stop_file.exists():
             return "manual", "stopped on request: " + clean(self.stop_file.read_text(), 300)
@@ -266,15 +283,25 @@ class Supervisor:
             if e["kind"] == "call":
                 self.note(f"{e['tool']:<10} {e['target']}  (model {e['model_s']}s)", e["ts"])
                 self.last = f"{e['tool']} {e['target']}".strip()
+                self.event("tool.call", state="working", tool=e["tool"], target=e["target"], model_s=e["model_s"])
             else:
                 self.note(f"ERROR      {e['tool']}: {e['msg']}", e["ts"])
+                self.event("tool.error", state="working", tool=e["tool"], msg=e["msg"])
         fp = workdir_fingerprint(self.cwd)
         changed = fp is not None and fp != self.fp
         if changed:
-            self.note("workdir    " + (workdir_summary(self.cwd) or "changed"))
+            summary = workdir_summary(self.cwd) or "changed"
+            self.note("workdir    " + summary)
+            self.event("workdir.change", state="working", summary=summary)
         self.fp = fp if fp is not None else self.fp
         self.det.feed(now, events, changed, out_bytes > self.out_bytes, ticks)
         self.out_bytes = out_bytes
+        if ticks is not None and ticks != self.ticks:
+            self.ticks, self.cpu_at = ticks, now
+        if now - self.last_tick >= TICK_SECONDS:
+            self.last_tick = now
+            self.event("run.tick", state=self.state(now), elapsed_s=int(now - self.started), cpu_idle_s=int(now - self.cpu_at),
+                       calls=len(self.det.calls), last_alive_age_s=int(now - self.det.last_alive), tokens=self.tokens or None)
         self.verdict = self.det.verdict(now)
         return self.verdict
 
