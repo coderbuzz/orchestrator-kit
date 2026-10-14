@@ -98,3 +98,5 @@ def test_reconcile_kills_an_orphan_past_its_wall_limit(tmp_path):
             break
         time.sleep(0.2)
     assert c.task(tid)["status"] != "RUNNING"
+    stop = next(e for e in c.store.read_log("events.jsonl") if e["kind"] == "run.stop")
+    assert stop["stop"]["kind"] == "wall" and stop["state"] == "stopped" and stop["run"] == f"{tid}#1", "the adopting server writes the run's events"

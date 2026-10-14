@@ -171,22 +171,23 @@ WORKER = textwrap.dedent("""
 @pytest.fixture
 def fast(monkeypatch, tmp_path):
     monkeypatch.setattr(harness, "SUPERVISE_SECONDS", 0.2)
+    monkeypatch.setattr(supervisor, "TICK_SECONDS", 0)
     monkeypatch.setattr(supervisor, "ROLLOUT_GLOB", str(tmp_path / "rollout" / "*.jsonl"))
     (tmp_path / "rollout").mkdir()
     (tmp_path / "worker.py").write_text(WORKER)
     return tmp_path
 
 
-def sup_for(base, cwd, lim):
-    return supervisor.Supervisor(base, str(cwd), "zcode", lim, time.time(), "[run-id:t1]")
+def sup_for(base, cwd, lim, emit=None):
+    return supervisor.Supervisor(base, str(cwd), "zcode", lim, time.time(), "[run-id:t1]", emit)
 
 
-def run(fast, mode, lim, timeout=30):
+def run(fast, mode, lim, timeout=30, emit=None):
     work = fast / "work"
     work.mkdir(exist_ok=True)
     subprocess.run(["git", "init", "-q"], cwd=work, check=True)
     argv = [sys.executable, str(fast / "worker.py"), str(fast / "rollout" / "model-io-sess_x.jsonl"), mode, "[run-id:t1]"]
-    sup = sup_for(fast / "runs" / "t1", work, lim)
+    sup = sup_for(fast / "runs" / "t1", work, lim, emit)
     (fast / "runs").mkdir(exist_ok=True)
     req = harness.Request("", "", str(work), [], None, timeout, limits=lim)
     with open(fast / "o", "w+") as o, open(fast / "e", "w+") as e:
@@ -202,8 +203,11 @@ def test_a_looping_worker_is_killed_with_its_tree(fast):
 
 
 def test_a_worker_that_makes_progress_is_left_alone_even_with_tight_thresholds(fast):
-    sup, rc = run(fast, "progress", Limits(stuck_minutes=0.05, loop_repeats=4, no_progress_minutes=0.05))
+    ev = []
+    sup, rc = run(fast, "progress", Limits(stuck_minutes=0.05, loop_repeats=4, no_progress_minutes=0.05), emit=lambda kind, **x: ev.append({"kind": kind, **x}))
     assert rc == 0
+    assert any(e["kind"] == "workdir.change" and "changed file" in e["summary"] for e in ev), "the git workdir change is an event too"
+    assert any(e["kind"] == "tool.call" and e["target"] == "f3.txt" for e in ev)
     lines = sup.tail(50)
     assert any("Write      f3.txt" in ln for ln in lines) and any(ln.split()[1] == "workdir" for ln in lines), lines
     assert sup.tokens["inputTokens"] == 12000
@@ -253,6 +257,14 @@ def test_dispatch_stops_a_loop_blocks_the_task_and_does_not_reroute(fast, monkey
     log = srv.call("run_log", {"project": "p", "task_id": tid, "lines": 5})
     assert log["running"] is False and log["stopped"] == "loop" and any("pnpm test" in ln for ln in log["lines"])
     assert subprocess.run(["pgrep", "-f", "worker.py"], capture_output=True).returncode == 1
+    ev = c.store.read_log("events.jsonl")
+    assert [e["seq"] for e in ev] == list(range(1, len(ev) + 1)), "supervisor events share the runtime's gap-free seq"
+    calls = [e for e in ev if e["kind"] == "tool.call"]
+    assert calls and calls[0]["tool"] == "Bash" and calls[0]["target"] == "pnpm test" and calls[0]["harness"] == "zcode" and calls[0]["run"] == f"{tid}#1"
+    stop = next(e for e in ev if e["kind"] == "run.stop")
+    assert stop["state"] == "stuck" and stop["stop"]["kind"] == "loop" and stop["last_call"] == "Bash pnpm test"
+    kinds = [e["kind"] for e in ev]
+    assert kinds.index("tool.call") < kinds.index("run.stop") < kinds.index("run.end")
 
 
 def test_run_stop_kills_a_running_worker_and_needs_a_reason(fast, monkeypatch):
@@ -279,6 +291,18 @@ def test_a_progressing_dispatch_completes_under_tight_thresholds(fast, monkeypat
     srv, c, tid = setup_dispatch(fast, monkeypatch, "progress", Limits(stuck_minutes=0.05, loop_repeats=4, no_progress_minutes=0.05))
     res = srv.call("dispatch", {"project": "p", "task_id": tid, "wait_seconds": 120})
     assert res.get("stopped") is None and c.task(tid)["status"] != "BLOCKED", res
+    ev = c.store.read_log("events.jsonl")
+    tick = next(e for e in ev if e["kind"] == "run.tick")  # TICK_SECONDS is 0 under `fast`
+    assert tick["state"] in ("working", "slow") and tick["calls"] >= 0 and {"elapsed_s", "cpu_idle_s", "last_alive_age_s"} <= tick.keys()
+    assert not any(e["kind"] == "run.stop" for e in ev)
+
+
+def test_a_failing_event_writer_never_breaks_supervision(tmp_path):
+    def boom(kind, **x):
+        raise RuntimeError("disk on fire")
+    sup = supervisor.Supervisor(tmp_path / "t1", str(tmp_path), "zcode", Limits(), time.time() - 60, emit=boom)
+    assert sup.poll(time.time(), 0) is None
+    sup.event("run.stop", stop={"kind": "manual"})
 
 
 def test_progress_notification_carries_the_latest_activity(capsys, tmp_path):

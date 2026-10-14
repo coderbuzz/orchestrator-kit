@@ -603,10 +603,16 @@ class Runtime:
         wall = t["budget"]["max_wall_seconds"]
         req = harness.Request(system, prompt, str(self._workspace(t)), caps, max(budget, 0.01) if budget is not None else None,
                               wall if wall and wall != LEGACY_WALL else limits.max_wall_seconds, on_progress=self.on_progress,
-                              limits=limits, run_dir=str(self.store.path / "runs"), run_id=task_id)
+                              limits=limits, run_dir=str(self.store.path / "runs"), run_id=task_id,
+                              on_event=self._run_events(task_id))
         ai = self.reg.ai_for(agent["id"], skill, t.get("ai"))
         policy_id = self.reg.model_policy_for(agent["id"], skill, t.get("model_policy"))
         return req, ai, policy_id, agent, skill
+
+    def _run_events(self, task_id: str):
+        """The supervisor's event writer for this task's run: same events.jsonl, `seq` under the store lock, `run` = task#attempt.
+        Also used by a server that adopts a detached worker (its supervisor lives in that server; the worker itself never writes events)."""
+        return lambda kind, **x: self.emit(kind, self.task(task_id), **x)
 
     def _run_end(self, task_id: str, a, ai: dict):
         self.emit("run.end", self.task(task_id), state="working" if a.ok else "failed", harness=a.harness, model=a.model, provider=a.provider, effort=a.effort or ai.get("effort"),
@@ -719,7 +725,8 @@ class Runtime:
 
     def _adopt(self, task_id: str, rec: dict):
         base = self._run_file(task_id).with_suffix("")
-        sup = (supervisor.Supervisor(base, rec["cwd"], rec["harness"], supervisor.Limits(**rec["limits"]), rec["started"], harness.run_marker(task_id))
+        sup = (supervisor.Supervisor(base, rec["cwd"], rec["harness"], supervisor.Limits(**rec["limits"]), rec["started"], harness.run_marker(task_id),
+                                     self._run_events(task_id))
                if rec.get("cwd") and rec.get("limits") else None)  # records of a 0.8.x server carry no supervisor settings
         verdict, last = None, 0.0
         while harness.tree_alive(rec["pid"]):
@@ -737,7 +744,7 @@ class Runtime:
         if verdict:
             harness.kill_group(rec["pid"])
             r = harness.halted(hdef, rec["model"], rec["provider"], sup or supervisor.Supervisor(base, rec.get("cwd") or ".", rec["harness"], supervisor.Limits(),
-                                                                                                 rec["started"]), *verdict, time.time() - rec["started"])
+                                                                                                 rec["started"], emit=self._run_events(task_id)), *verdict, time.time() - rec["started"])
         elif (rc := base.with_suffix(".rc")).exists():
             r = harness.collect(hdef, rec["model"], rec["provider"], base.with_suffix(".out").read_text(), base.with_suffix(".err").read_text(),
                                 int(rc.read_text() or 1), time.time() - rec["started"])
