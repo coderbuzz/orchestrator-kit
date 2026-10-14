@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.0 (2026-10-14)
+- Fix "dispatch stuck" (sirkel task-c8d1c0befc ran ~50 min past `max_wall_seconds` 1800, tripping Claude Code's MCP idle timeout): the worker now runs in its own session and the wall limit kills the whole process tree. `subprocess.run(timeout=)` killed only the direct child, then hung while a grandchild (wrangler/pnpm) held the stderr pipe. stderr goes to a temp file.
+- `dispatch` over MCP sends `notifications/progress` every 30 s (when the client passes a `progressToken`): elapsed/limit, output bytes, process count, and `STALLED` after 5 min of zero CPU in the worker's tree. The stall flag is a report only; a worker is stopped only by the wall limit.
+- Workers outlive the MCP server: each runs detached with `<state>/runs/<task>.json|.out|.err|.rc` (pid, owner, harness, model, limit). When a server starts a project, `Runtime.reconcile()` settles every RUNNING task whose owner server is dead: a live worker is awaited (killed at its wall limit), a finished one is collected, one that left no exit code retries/fails with "worker lost". Before, a restart killed the worker and the task stayed RUNNING forever.
+- The MCP server runs each `tools/call` on its own thread: a long `dispatch` no longer blocks `status`/`tasks` (stdout writes are locked).
+- `url` health-check evidence sends a normal User-Agent (Cloudflare 403'd `Python-urllib`: four correct staging tasks stayed PLANNED), counts a 403/429 as reachable, and names the status code in the note otherwise.
+- Per-route time: `max_wall_seconds` is now the total across fallback routes, and a route that has a fallback behind it gets at most `config.models.fallback.route_seconds` (default 600). Before, every route got the full limit (zcode GLM stuck 1800 s on 5 of 5 fullstack tasks, then agy ran).
+- `Request.on_progress`, `Runtime.on_progress`, `harness.run_worker`.
+
 ## 0.7.6 (2026-10-14)
 - A selection without a provider resolves to the harness's only provider (claude-code: `anthropic`): the route, `price_for` and the usage record carry it. Before, the flat-plan price (`anthropic/*`) was never found, so a claude-code call with a full model id was charged in full against the project budget.
 - claude-code worker calls record tokens (`inputTokens`, `cacheWriteTokens`, `cacheReadTokens`, `outputTokens`) and the equivalent cost is priced from the descriptor tariff; the CLI's `total_cost_usd` is only the fallback for a model without a tariff.

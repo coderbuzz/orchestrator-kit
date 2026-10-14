@@ -8,6 +8,7 @@ Stdlib only: newline-delimited JSON-RPC 2.0 (MCP stdio transport), tools capabil
 import json
 import os
 import sys
+import threading
 from pathlib import Path
 
 
@@ -102,6 +103,8 @@ class Server:
 
     def __init__(self, ws: Path | None = None, *, runtime=Runtime, tools=(), handlers=None, report=default_report, **runtime_kw):
         self.ws, self.kw, self.cache = Path(ws or workspace()), runtime_kw, {}
+        self.local = threading.local()  # progressToken of the tools/call this thread handles
+        self.out = threading.Lock()
         self.pack = Pack.load(runtime_kw.get("root") or ROOT)
         self.runtime, self.tools, self.report = runtime, list(tools), report
         self.handlers = {"projects": self._projects, "approvals": self._approvals, "project_init": self._project_init, "status": self._status,
@@ -118,7 +121,8 @@ class Server:
         if project not in found:
             raise Refused(f"no project '{project}' (projects: {sorted(found)}); use project_init for an existing folder")
         if project not in self.cache:
-            self.cache[project] = self.runtime.for_project(found[project], **self.kw)
+            self.cache[project] = c = self.runtime.for_project(found[project], **self.kw)
+            c.reconcile()  # settle workers an earlier server left running
         return self.cache[project]
 
     def call(self, name: str, a: dict):
@@ -189,7 +193,24 @@ class Server:
         return (c.cancel if a["outcome"] == "cancel" else c.fail)(a["task_id"], a["why"])["status"]
 
     def _dispatch(self, _, a):
-        return self.company(a["project"]).dispatch(a["task_id"])
+        c = self.company(a["project"])
+        c.on_progress = self._progress  # stateless: the token is per thread
+        return c.dispatch(a["task_id"])
+
+    def _progress(self, info: dict):
+        """MCP notifications/progress for the running tools/call: keeps the client's idle timeout from firing and shows the human the worker is alive."""
+        token = getattr(self.local, "token", None)
+        if token is None:
+            return
+        msg = (f"worker alive {info['elapsed_s']}s of {info['limit_s']}s; output {info['output_bytes']} B; {info['processes']} process(es)"
+               + (f"; STALLED: no CPU for {info['idle_cpu_s']}s (still running, not killed)" if info["stalled"] else ""))
+        self.send({"jsonrpc": "2.0", "method": "notifications/progress",
+                   "params": {"progressToken": token, "progress": info["elapsed_s"], "total": info["limit_s"], "message": msg}})
+
+    def send(self, msg: dict):
+        with self.out:
+            sys.stdout.write(json.dumps(msg, default=str) + "\n")
+            sys.stdout.flush()
 
     def _review(self, _, a):
         if a["as_agent"] == self.pack.human_id:
@@ -238,6 +259,7 @@ class Server:
         elif method == "tools/list":
             res = {"tools": self.tools}
         elif method == "tools/call":
+            self.local.token = (params.get("_meta") or {}).get("progressToken")
             try:
                 out, err = self.call(params["name"], params.get("arguments") or {}), False
             except Refused as e:
@@ -252,10 +274,17 @@ class Server:
 
 
 def serve(server: Server) -> int:
+    """tools/call runs on its own thread, so a long `dispatch` never blocks `status`, `tasks` or a second call."""
+    def answer(msg):
+        reply = server.handle(msg)
+        if reply is not None:
+            server.send(reply)
+
     for line in sys.stdin:
         if line.strip():
-            reply = server.handle(json.loads(line))
-            if reply is not None:
-                sys.stdout.write(json.dumps(reply, default=str) + "\n")
-                sys.stdout.flush()
+            msg = json.loads(line)
+            if msg.get("method") == "tools/call":
+                threading.Thread(target=answer, args=(msg,), daemon=True).start()
+            else:
+                answer(msg)
     return 0
