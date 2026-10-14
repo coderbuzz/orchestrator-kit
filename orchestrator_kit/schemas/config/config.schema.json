@@ -94,7 +94,8 @@
               },
               "timeout_seconds": {
                 "type": "integer",
-                "minimum": 30
+                "minimum": 30,
+                "description": "Ignored since kit 0.9.0: runs are supervised for progress, not timed (see supervisor.max_wall_seconds)."
               },
               "inactive_providers": {
                 "type": "array",
@@ -126,6 +127,38 @@
             "circuit_breaker_seconds": {
               "type": "integer",
               "minimum": 0
+            }
+          }
+        },
+        "supervisor": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Progress supervisor of worker runs (defaults in orchestrator_kit/supervisor.py): a worker is stopped only when stuck or looping, never for being slow.",
+          "properties": {
+            "stuck_minutes": {
+              "type": "number",
+              "minimum": 1,
+              "description": "No sign of life (tool calls, workdir change, output) for this long AND no CPU in the worker's process tree: stuck, the run is stopped. Default 10."
+            },
+            "loop_repeats": {
+              "type": "integer",
+              "minimum": 2,
+              "description": "The same tool call (or an A-B / A-B-C cycle) this many times with the workdir unchanged: loop, the run is stopped. Default 6."
+            },
+            "error_repeats": {
+              "type": "integer",
+              "minimum": 2,
+              "description": "The same tool error this many times in a row with the workdir unchanged: loop. Default 5."
+            },
+            "no_progress_minutes": {
+              "type": "number",
+              "minimum": 1,
+              "description": "Tool calls keep arriving but none is new and the workdir is unchanged for this long: loop. Default 15."
+            },
+            "max_wall_seconds": {
+              "type": "integer",
+              "minimum": 60,
+              "description": "Safety ceiling for one task's whole run (all routes); a task's budget.max_wall_seconds overrides it. Default 10800."
             }
           }
         }

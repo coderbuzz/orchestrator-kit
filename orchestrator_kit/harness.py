@@ -19,9 +19,10 @@ import tempfile
 import time
 from pathlib import Path
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 
 from .registry import Registry
+from .supervisor import Limits, Supervisor
 from .validate import AI_SCHEMA, load, schema_file, validator_for
 
 
@@ -36,6 +37,7 @@ class Request:
     provider: str | None = None
     effort: str | None = None
     on_progress: Callable[[dict], None] | None = None  # called every PROGRESS_SECONDS while the worker runs
+    limits: Limits | None = None  # supervisor thresholds (stuck / loop); None = defaults. timeout_seconds is only the ceiling
     run_dir: str | None = None  # persist the worker's pid record, output and exit code here (<run_id>.json/.out/.err/.rc) so a restarted server can adopt it
     run_id: str = "worker"
 
@@ -55,10 +57,18 @@ class CallResult:
     provider: str | None = None
     effort: str | None = None
     tokens: dict = field(default_factory=dict)  # zh --json usage (input/output/cache/reasoning)
+    stopped: str = ""                  # supervisor verdict that killed the worker: stuck | loop | manual | wall (never a reason to try another route)
 
 
 class Unavailable(Exception):
     pass
+
+
+class Stopped(Exception):
+    """The supervisor stopped the worker (and killed its process tree). `kind`: stuck | loop | manual."""
+    def __init__(self, kind: str, reason: str):
+        super().__init__(reason)
+        self.kind, self.reason = kind, reason
 
 
 @dataclass
@@ -174,9 +184,13 @@ def _contract_prompt(req: Request, schema: dict) -> str:
     return f"{req.system_prompt}\n\n---\n\n{req.prompt}\n\n{contract_section(schema)}"
 
 
+def run_marker(run_id: str) -> str:
+    return f"[run-id:{run_id}]"
+
+
 def build_zcode(hdef, model, req: Request, schema: dict) -> list[str]:
     caps = set(req.capabilities)
-    prompt = _contract_prompt(req, schema)
+    prompt = f"{run_marker(req.run_id)}\n{_contract_prompt(req, schema)}"  # the marker lets the supervisor find this run's rollout log
     args = _fill(hdef["invocation"]["non_interactive_args"], {"cwd": req.cwd, "mode": _mode(caps)})
     args = [prompt if a == "{prompt}" else a for a in args]
     if not caps & {"execute_command", "run_tests"}:
@@ -344,7 +358,8 @@ def installed_version(command: str) -> str:
 
 
 PROGRESS_SECONDS = 30
-STALL_SECONDS = 300  # no CPU used by the worker's process tree for this long: reported as `stalled`, never killed
+SUPERVISE_SECONDS = 10  # how often the supervisor looks at the worker's log, workdir and CPU
+STALL_SECONDS = 300  # no CPU used by the worker's process tree for this long: reported as `stalled` in the progress message
 
 
 def _tree_cpu(sid: int) -> tuple[int, int]:
@@ -391,14 +406,18 @@ def _kill_tree(p: subprocess.Popen):
     p.wait()
 
 
-def run_worker(argv, req: Request, out, errf, poll: float = 1.0, record: Path | None = None, meta: dict | None = None) -> int:
-    """Run the worker in its own session so the wall limit kills its whole process tree (subprocess.run's timeout killed
-    only the direct child and then hung while a grandchild held the stderr pipe). While it runs, `req.on_progress` gets
-    elapsed seconds, stdout bytes, process count and whether the tree has used no CPU for STALL_SECONDS. Raises TimeoutExpired."""
+def run_worker(argv, req: Request, out, errf, poll: float = 1.0, record: Path | None = None, meta: dict | None = None,
+               sup: Supervisor | None = None) -> int:
+    """Run the worker in its own session so a kill takes its whole process tree (subprocess.run's timeout killed
+    only the direct child and then hung while a grandchild held the stderr pipe). While it runs, the supervisor (if any) judges its
+    progress every SUPERVISE_SECONDS and a stuck or looping worker is killed (raises Stopped); `req.timeout_seconds` is only the
+    ceiling (raises TimeoutExpired). `req.on_progress` gets, every PROGRESS_SECONDS, elapsed seconds, stdout bytes, process count,
+    whether the tree has used no CPU for STALL_SECONDS and the latest activity lines."""
     p = subprocess.Popen(argv, cwd=req.cwd, stdout=out, stderr=errf, text=True, stdin=subprocess.DEVNULL, start_new_session=True)
     if record:  # the owner (this server) may die; the worker keeps running and the next server settles it from these files
-        record.write_text(json.dumps({**(meta or {}), "pid": p.pid, "owner": os.getpid(), "started": time.time(), "limit": req.timeout_seconds, "done": False}))
-    t0 = last_tick = last_cpu = time.time()
+        record.write_text(json.dumps({**(meta or {}), "pid": p.pid, "owner": os.getpid(), "started": time.time(), "limit": req.timeout_seconds,
+                                      "cwd": req.cwd, "limits": asdict(req.limits or Limits()), "done": False}))
+    t0 = last_tick = last_look = last_cpu = time.time()
     ticks = -1
     while True:
         try:
@@ -409,15 +428,22 @@ def run_worker(argv, req: Request, out, errf, poll: float = 1.0, record: Path | 
         if now - t0 >= req.timeout_seconds:
             _kill_tree(p)
             raise subprocess.TimeoutExpired(argv, req.timeout_seconds)
-        if now - last_tick >= PROGRESS_SECONDS:
-            last_tick = now
+        if now - last_look >= SUPERVISE_SECONDS or now - last_tick >= PROGRESS_SECONDS:
+            last_look = now
             n, t = _tree_cpu(p.pid)
             if t != ticks:
                 ticks, last_cpu = t, now
-            if req.on_progress:
-                out.flush()
-                req.on_progress({"elapsed_s": int(now - t0), "limit_s": req.timeout_seconds, "output_bytes": os.fstat(out.fileno()).st_size,
-                                 "processes": n, "idle_cpu_s": int(now - last_cpu), "stalled": now - last_cpu >= STALL_SECONDS})
+            out.flush()
+            size = os.fstat(out.fileno()).st_size
+            if sup and (v := sup.poll(now, t, size)):
+                _kill_tree(p)
+                raise Stopped(*v)
+            if now - last_tick >= PROGRESS_SECONDS:
+                last_tick = now
+                if req.on_progress:
+                    req.on_progress({"elapsed_s": int(now - t0), "limit_s": req.timeout_seconds, "output_bytes": size, "processes": n,
+                                     "idle_cpu_s": int(now - last_cpu), "stalled": now - last_cpu >= STALL_SECONDS,
+                                     "activity": sup.tail(5) if sup else []})
 
 
 def invoke(hdef: dict, model: str, req: Request, schema: dict) -> CallResult:
@@ -435,17 +461,36 @@ def invoke(hdef: dict, model: str, req: Request, schema: dict) -> CallResult:
         rd.mkdir(parents=True, exist_ok=True)
         base = rd / req.run_id
         base.with_suffix(".rc").unlink(missing_ok=True)  # never a previous attempt's exit code
+        base.with_suffix(".stop").unlink(missing_ok=True)  # nor a previous attempt's stop request
         wrapped = ["sh", "-c", '"$@"; rc=$?; echo $rc > "$0"; exit $rc', str(base.with_suffix(".rc")), *argv]
         meta = {"harness": hdef["id"], "model": model, "provider": req.provider, "effort": req.effort}
+        sup = Supervisor(base, req.cwd, hdef["id"], req.limits or Limits(), t0, run_marker(req.run_id))
+        sup.note(f"# start {hdef['id']} {model}{' ' + req.effort if req.effort else ''} (ceiling {req.timeout_seconds}s)", t0)
         with open(base.with_suffix(".out"), "w+") as out, open(base.with_suffix(".err"), "w+") as errf:
             try:
-                returncode = run_worker(wrapped, req, out, errf, record=base.with_suffix(".json") if req.run_dir else None, meta=meta)
+                returncode = run_worker(wrapped, req, out, errf, record=base.with_suffix(".json") if req.run_dir else None, meta=meta, sup=sup)
+            except Stopped as e:
+                return halted(hdef, model, req.provider, sup, e.kind, e.reason, time.time() - t0)
             except subprocess.TimeoutExpired:
-                return CallResult(False, hdef["id"], model, error=f"timeout after {req.timeout_seconds}s (worker process group killed)", duration_s=time.time() - t0)
+                return halted(hdef, model, req.provider, sup, "wall", f"safety ceiling of {req.timeout_seconds}s reached (max_wall_seconds), worker process group killed",
+                              time.time() - t0)
             except OSError as e:
                 return CallResult(False, hdef["id"], model, error=f"cannot start harness: {e}")
         stdout, stderr = base.with_suffix(".out").read_text(), base.with_suffix(".err").read_text()
+        sup.note(f"# exit {returncode} after {int(time.time() - t0)}s")
     return collect(hdef, model, req.provider, stdout, stderr, returncode, time.time() - t0)
+
+
+def halted(hdef: dict, model: str, provider: str | None, sup: Supervisor, kind: str, reason: str, duration_s: float) -> CallResult:
+    """CallResult of a worker the supervisor (or the ceiling) killed. The tokens it used so far come from the worker's own log (a killed
+    process prints no usage), priced like a finished call."""
+    report = sup.stop_report(kind, reason)
+    sup.note(f"# STOPPED ({kind}): {reason}")
+    tokens = sup.tokens
+    price = price_for(hdef, provider, model)
+    cost, equivalent = billing(price, token_cost(price, tokens) if tokens else None)
+    return CallResult(False, hdef["id"], model, error=report, cost_usd=cost or 0.0, cost_estimated=cost is None and bool(tokens),
+                      equivalent_cost_usd=equivalent, duration_s=duration_s, tokens=tokens, stopped=kind)
 
 
 def collect(hdef: dict, model: str, provider: str | None, stdout: str, stderr: str, returncode: int, duration_s: float) -> CallResult:
@@ -518,8 +563,7 @@ class Router:
             raise Unavailable(f"no enabled, installed harness for model policy '{policy_id}'")
         limit = (self.cfg.get("fallback") or {}).get("max_candidates_per_attempt", 3)
         attempts, t0 = [], time.time()
-        fb = self.cfg.get("fallback") or {}
-        for i, rt in enumerate(routes[:limit]):
+        for rt in routes[:limit]:
             hdef, model, hcfg = rt.hdef, rt.model, rt.cfg
             effort = (rt.effort if rt.effort is not None else (ai or {}).get("effort")) or None
             why = unsupported(hdef, model, rt.provider, effort)
@@ -529,10 +573,9 @@ class Router:
             left = int(req.timeout_seconds - (time.time() - t0))  # max_wall_seconds is the total for all routes
             if left < 1:
                 break
-            cap = min(left, hcfg.get("timeout_seconds", 1800))
-            if i < min(limit, len(routes)) - 1:  # a stuck route must leave time for the next one
-                cap = min(cap, fb.get("route_seconds", 600))
-            this = Request(**{**req.__dict__, "provider": rt.provider, "effort": effort, "timeout_seconds": cap})
+            # `left` is only the safety ceiling (max_wall_seconds, total for all routes): a worker that makes progress is never cut short and a
+            # stuck or looping one is stopped by the supervisor, so no per-route time cut and no moving on for being slow
+            this = Request(**{**req.__dict__, "provider": rt.provider, "effort": effort, "timeout_seconds": left})
             for retry in (False, True):
                 r = invoke_fn(hdef, model, this, self.reg.result_schema)
                 r.provider, r.effort = rt.provider, effort
@@ -542,8 +585,11 @@ class Router:
                     errs = [e.message for e in self._validator.iter_errors(r.output)]
                     if errs:
                         r.ok, r.error = False, f"result violates agent-result contract: {errs[:2]}"
-                self._record(hdef["id"], r.ok)
+                if not r.stopped:  # a run the supervisor or the ceiling stopped says nothing about the provider's health
+                    self._record(hdef["id"], r.ok)
                 attempts.append(r)
+                if r.stopped:  # stop and report: another route only after a real failure (exit, provider error, quota) or the CEO's decision
+                    return attempts
                 if r.ok or retry or not r.error.startswith(RETRYABLE):
                     break
                 this = Request(**{**this.__dict__, "prompt": f"{req.prompt}\n\nYour previous answer was rejected: {r.error[:400]}\n"

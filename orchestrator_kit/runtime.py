@@ -20,7 +20,7 @@ from pathlib import Path
 
 import yaml
 
-from . import harness, verify
+from . import harness, supervisor, verify
 from .pack import Pack
 from .policy import Policy
 from .registry import Registry
@@ -28,6 +28,7 @@ from .store import InvalidRecord, Store, new_id, now
 from .validate import AI_SCHEMA, ROOT, errors_for, load, schema_file, validate_instance, validator_for
 
 TERMINAL = {"COMPLETED", "FAILED", "CANCELLED"}
+LEGACY_WALL = 1800  # what task_add stored as max_wall_seconds before the progress supervisor: treated as "not set"
 
 
 class Refused(Exception):
@@ -199,7 +200,7 @@ class Runtime:
             raise Refused(f"unknown artifact type(s) {unknown}")
         t = {"task_id": new_id("task"), "parent_task_id": parent, "objective": objective, "description": "", "assigned_agent": agent,
              "created_by": by, "owner": by, "priority": "normal", "status": "PENDING", "dependencies": list(after),
-             "budget": {"max_cost_usd": budget_usd if budget_usd is not None else cap, "max_wall_seconds": 1800},
+             "budget": {"max_cost_usd": budget_usd if budget_usd is not None else cap, "max_wall_seconds": None},
              "inputs": inputs or {}, "required_artifacts": required, "acceptance_criteria": list(criteria),
              "approval_level": level, "evidence": [], "result": None, "created_at": now(), "updated_at": now(),
              "skill": skill, "model_policy": None, "ai": ai, "attempts": 0,
@@ -495,9 +496,11 @@ class Runtime:
         system, prompt = self.prompt(t, agent, skill)
         caps = [c for c in agent["tools"] if self.reg.capabilities[c].get("adapter") == "harness"]
         budget = t["budget"]["max_cost_usd"]
+        limits = self.limits()
+        wall = t["budget"]["max_wall_seconds"]
         req = harness.Request(system, prompt, str(self._workspace(t)), caps, max(budget, 0.01) if budget is not None else None,
-                              t["budget"]["max_wall_seconds"] or 1800, on_progress=self.on_progress,
-                              run_dir=str(self.store.path / "runs"), run_id=task_id)
+                              wall if wall and wall != LEGACY_WALL else limits.max_wall_seconds, on_progress=self.on_progress,
+                              limits=limits, run_dir=str(self.store.path / "runs"), run_id=task_id)
         ai = self.reg.ai_for(agent["id"], skill, t.get("ai"))
         policy_id = self.reg.model_policy_for(agent["id"], skill, t.get("model_policy"))
         try:
@@ -512,6 +515,10 @@ class Runtime:
             return {"status": "BLOCKED", "notes": [t["blocked_reason"]]}
         return self._settle(task_id, attempts, ai)
 
+    def limits(self) -> supervisor.Limits:
+        """Supervisor thresholds from config/models `supervisor` (defaults in supervisor.DEFAULTS)."""
+        return supervisor.Limits.from_config(self.reg.config["models"].get("supervisor"))
+
     def _settle(self, task_id: str, attempts: list, ai: dict) -> dict:
         """Charge and record a worker's attempts, then submit the last result (or retry/fail the task)."""
         with self.store.tx():
@@ -525,6 +532,12 @@ class Runtime:
             self.store.put("tasks", t)
             self._budget_warning()
             last = attempts[-1]
+            if last.stopped:  # stuck, looping, stopped on request or hit the ceiling: stop and report, no retry and no other route on its own
+                self._mark_run(task_id, last.stopped, last.error)
+                t["blocked_reason"] = last.error[:500]
+                t["inputs"] = {**t["inputs"], "previous_attempt_feedback": last.error[:1500]}
+                self._set(t, "BLOCKED", f"{last.stopped}: {last.error[:300]}")
+                return {"status": "BLOCKED", "stopped": last.stopped, "notes": [last.error], "activity_log": str(self._run_file(task_id).with_suffix(".activity.log"))}
             if not last.ok:
                 self._mark_run(task_id)
                 return self._retry_or_fail(t, f"all model candidates failed; last: {last.harness}/{last.model}: {last.error}")
@@ -536,10 +549,33 @@ class Runtime:
     def _run_file(self, task_id: str) -> Path:
         return self.store.path / "runs" / f"{task_id}.json"
 
-    def _mark_run(self, task_id: str):
+    def _mark_run(self, task_id: str, stopped: str = "", why: str = ""):
         f = self._run_file(task_id)
         if f.exists():
-            f.write_text(json.dumps({**json.loads(f.read_text()), "done": True}))
+            f.write_text(json.dumps({**json.loads(f.read_text()), "done": True, **({"stopped": stopped, "stop_reason": why[:1500]} if stopped else {})}))
+
+    def run_log(self, task_id: str, lines: int = 20) -> dict:
+        """The last `lines` lines of a task's activity log (one line per tool call: time, tool, short target, model seconds) and whether its worker runs."""
+        t = self.task(task_id)
+        f = self._run_file(task_id)
+        log, rec = f.with_suffix(".activity.log"), json.loads(f.read_text()) if f.exists() else None
+        running = bool(rec and not rec["done"] and harness.tree_alive(rec["pid"]))
+        return {"task_id": task_id, "status": t["status"], "running": running, "elapsed_s": int(time.time() - rec["started"]) if running else None,
+                "seconds_since_last_line": int(time.time() - log.stat().st_mtime) if log.exists() else None, "log_file": str(log) if log.exists() else None,
+                "stopped": (rec or {}).get("stopped"), "lines": supervisor.tail_lines(log, max(1, min(int(lines), 200)))}
+
+    def run_stop(self, task_id: str, reason: str, by: str | None = None) -> dict:
+        """Ask the supervisor to stop a running worker (it kills the process tree within seconds and the task becomes BLOCKED with this reason).
+        A decision of the orchestrator, never routine: the reason is mandatory and goes to the audit log."""
+        if not reason.strip():
+            raise Refused("a reason is required to stop a run")
+        t, f = self.task(task_id), self._run_file(task_id)
+        rec = json.loads(f.read_text()) if f.exists() else None
+        if t["status"] != "RUNNING" or not rec or rec["done"] or not harness.tree_alive(rec["pid"]):
+            raise Refused(f"{task_id} has no running worker (status {t['status']})")
+        f.with_suffix(".stop").write_text(reason.strip()[:500])
+        self.audit(by or self.actor, "run stop", reason.strip()[:300], t)
+        return {"task_id": task_id, "stop_requested": True, "note": "the worker is killed within ~10 s and the task becomes BLOCKED; its changes stay in the workdir"}
 
     def reconcile(self) -> list[str]:
         """On server start: settle RUNNING tasks whose worker an earlier server left behind (record not done, its owner dead).
@@ -559,13 +595,26 @@ class Runtime:
 
     def _adopt(self, task_id: str, rec: dict):
         base = self._run_file(task_id).with_suffix("")
-        while harness.tree_alive(rec["pid"]) and time.time() - rec["started"] < rec["limit"]:
+        sup = (supervisor.Supervisor(base, rec["cwd"], rec["harness"], supervisor.Limits(**rec["limits"]), rec["started"], harness.run_marker(task_id))
+               if rec.get("cwd") and rec.get("limits") else None)  # records of a 0.8.x server carry no supervisor settings
+        verdict, last = None, 0.0
+        while harness.tree_alive(rec["pid"]):
+            now_ = time.time()
+            if now_ - rec["started"] >= rec["limit"]:
+                verdict = ("wall", f"safety ceiling of {rec['limit']}s reached (max_wall_seconds), worker process group killed")
+                break
+            if sup and now_ - last >= harness.SUPERVISE_SECONDS:
+                last = now_
+                verdict = sup.poll(now_, harness._tree_cpu(rec["pid"])[1], base.with_suffix(".out").stat().st_size if base.with_suffix(".out").exists() else 0)
+                if verdict:
+                    break
             time.sleep(2)
-        if harness.tree_alive(rec["pid"]):
-            harness.kill_group(rec["pid"])
         hdef = self.reg.harnesses[rec["harness"]]
-        rc = base.with_suffix(".rc")
-        if rc.exists():
+        if verdict:
+            harness.kill_group(rec["pid"])
+            r = harness.halted(hdef, rec["model"], rec["provider"], sup or supervisor.Supervisor(base, rec.get("cwd") or ".", rec["harness"], supervisor.Limits(),
+                                                                                                 rec["started"]), *verdict, time.time() - rec["started"])
+        elif (rc := base.with_suffix(".rc")).exists():
             r = harness.collect(hdef, rec["model"], rec["provider"], base.with_suffix(".out").read_text(), base.with_suffix(".err").read_text(),
                                 int(rc.read_text() or 1), time.time() - rec["started"])
         else:

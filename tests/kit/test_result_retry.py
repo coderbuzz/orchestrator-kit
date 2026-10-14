@@ -56,11 +56,17 @@ def test_contract_violation_retried_once_then_next_route_other_errors_not_retrie
     assert len(calls) == 2, "a timeout is not retried on the same route"
 
 
-def test_route_time_is_capped_while_a_fallback_remains():
+def test_a_route_gets_the_whole_ceiling_and_a_stopped_run_is_not_rerouted():
     r = _router()
     routes = r.route("default")[:2]
     assert len(routes) == 2
     seen = []
-    big = harness.Request("sys", "task", ".", [], None, 1800)
-    r.call_with_fallback("default", big, lambda h, m, rq, s: seen.append(rq.timeout_seconds) or harness.CallResult(False, h["id"], m, error="timeout after 1s"), which=routes)
-    assert seen[0] == 600 and seen[-1] > 600, "first route capped, the last gets what is left"
+    big = harness.Request("sys", "task", ".", [], None, 10800)
+    r.call_with_fallback("default", big, lambda h, m, rq, s: seen.append(rq.timeout_seconds) or harness.CallResult(False, h["id"], m, error="exit 1: provider error"), which=routes)
+    assert len(seen) == 2 and seen[0] >= 10799, "a real failure moves on, and no route is cut to a fraction of the ceiling"
+    seen.clear()
+    r = _router()
+    stuck = lambda h, m, rq, s: seen.append(1) or harness.CallResult(False, h["id"], m, error="stopped by supervisor (loop)", stopped="loop")  # noqa: E731
+    out = r.call_with_fallback("default", big, stuck, which=routes)
+    assert len(seen) == 1 and out[-1].stopped == "loop", "stuck/loop: stop and report, never another route on its own"
+    assert not r.health.get(routes[0].hdef["id"], {}).get("failures"), "a stopped run does not trip the circuit breaker"
