@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.2 (2026-10-14)
 - New evidence check `deploy_version` (library `deployment.version`): a deploy tool's version id is never a git commit. Rejects 7-40 hex characters (a git SHA) and any value equal to `evidence.sha`/`commit`. Shape only: matching the id against the deploy tool is a pack's job (add a `deploy_version` entry to `Runtime.evidence_checks`).
 
 ## 0.9.1 (2026-10-14)
