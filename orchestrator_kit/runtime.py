@@ -167,10 +167,41 @@ class Runtime:
     def _set(self, t: dict, status: str, why: str, actor: str = "system") -> dict:
         if status not in self.reg.task_lifecycle["transitions"][t["status"]]:
             raise Refused(f"{t['task_id']}: {t['status']} -> {status} is not an allowed transition")
+        prev = t["status"]
         t["status"], t["updated_at"] = status, now()
         self.store.put("tasks", t)
         self.audit(actor, f"task {status}", why, t)
+        self._lifecycle(t, prev, status, why)
         return t
+
+    # ------------------------------------------------------------------ events (docs/dashboard-events.md, layer A: written by the kit, no model involved)
+    def emit(self, kind: str, t: dict, **extra):
+        """Append one `kit-event/1` line to events.jsonl: what happened to a task, with a per-project `seq` a reader can resume from."""
+        with self.store.tx():
+            self.store.append("events.jsonl", {"v": 1, "seq": self.store.last_seq("events.jsonl") + 1, "ts": now(),
+                                               "project": (self.project or {}).get("name"), "task": t["task_id"], "attempt": t["attempts"],
+                                               "agent": t["assigned_agent"], "kind": kind, **extra})
+
+    def _lifecycle(self, t: dict, prev: str, status: str, why: str):
+        text = lambda s, n: supervisor.clean(s, n)  # noqa: E731  one redacted line
+        if status == "RUNNING" and prev in ("PENDING", "PLANNED"):
+            return self.emit("task.start", t, state="working", objective=text(t["objective"], 200))
+        if status in ("COMPLETED", "FAILED", "CANCELLED", "BLOCKED"):
+            open_ = ("PENDING", "PLANNED")
+            tasks = self.store.all("tasks")
+            nxt = [x for x in tasks if t["task_id"] in x["dependencies"] and x["status"] in open_] or \
+                  sorted((x for x in tasks if x["assigned_agent"] == t["assigned_agent"] and x["status"] in open_), key=lambda x: x["created_at"])
+            self.emit("task.end", t, state={"COMPLETED": "done", "FAILED": "failed"}.get(status, "stopped"), status=status,
+                      summary=text(((t.get("result") or {}).get("summary") if status == "COMPLETED" else why) or why, 300),
+                      cost_usd=t["cost_usd"], next=[{"task": x["task_id"], "objective": text(x["objective"], 120)} for x in nxt[:3]])
+            if status != "BLOCKED" and all(x["status"] in TERMINAL for x in tasks):
+                counts = {}
+                for x in tasks:
+                    counts[x["status"]] = counts.get(x["status"], 0) + 1
+                self.emit("project.done", t, state="done", counts=counts, cost_usd=round(sum(x["cost_usd"] for x in tasks), 6))
+            return
+        self.emit("task.status", t, state={"WAITING_APPROVAL": "waiting"}.get(status, "working" if status == "RUNNING" else "idle"),
+                  **{"from": prev, "to": status, "why": text(why, 200)})
 
     # ------------------------------------------------------------------ tasks
     def add_task(self, agent: str, objective: str, criteria: list[str], *, skill: str | None = None, artifacts: list[str] | None = None,
@@ -432,6 +463,7 @@ class Runtime:
         self.store.put("approvals", a)
         t["approval_id"] = a["approval_id"]
         self._set(t, "WAITING_APPROVAL", f"level {level} approval from {approver}")
+        self.emit("gate", t, state="waiting", gate="approval", decision="requested", action=supervisor.clean(action, 200), by=approver)
         if approver == self.reg.pack.human_id:
             self.notify_human(t["assigned_agent"], f"Approval needed (level {level}) [{a['approval_id']}]: {action[:500]} — {justification[:600]}",
                                t["task_id"], "approval")
@@ -456,6 +488,7 @@ class Runtime:
             self.store.put("approvals", a)
             t = self.task(a["task_id"])
             self.audit(by, "approve" if granted else "reject", note or "-", t, approval_id=approval_id)
+            self.emit("gate", t, state="waiting", gate="approval", decision="granted" if granted else "rejected", action=supervisor.clean(a["action"], 200), by=by)
             if t["status"] != "WAITING_APPROVAL":
                 return {"status": t["status"], "notes": []}
             if not granted:
@@ -597,6 +630,9 @@ class Runtime:
                                                   "model": a.model, "provider": a.provider, "effort": a.effort or ai.get("effort"), "tokens": a.tokens, "cost_usd": a.cost_usd, "equivalent_cost_usd": a.equivalent_cost_usd, "estimated": a.cost_estimated,
                                                   "ok": a.ok, "duration_s": round(a.duration_s, 1), "error": a.error[:300]})
                 t["cost_usd"] = round(t["cost_usd"] + a.cost_usd, 6)
+                self.emit("run.end", t, state="working" if a.ok else "failed", harness=a.harness, model=a.model, provider=a.provider, effort=a.effort or ai.get("effort"),
+                          ok=a.ok, error=supervisor.clean(a.error, 300) or None, stop=a.stopped or None, tokens=a.tokens or None,
+                          cost_usd=a.cost_usd, equivalent_cost_usd=a.equivalent_cost_usd, duration_s=round(a.duration_s, 1))
             self.store.put("tasks", t)
             self._budget_warning()
             last = attempts[-1]

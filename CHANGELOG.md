@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.0 (2026-10-14)
+Lifecycle events for a dashboard (design: `docs/dashboard-events.md`, layer A: written by the kit itself, no model, no prompt change).
+- The runtime appends `kit-event/1` lines to `<state>/events.jsonl` with a per-project `seq` (gap-free, readers resume with `after=<seq>`): `task.start` (objective), `task.end` (status, result summary or reason, cost, `next` = the tasks it unblocks or the agent's next open tasks), `project.done` (all tasks terminal: counts, cost), `task.status` (other transitions), `gate` (approval requested/granted/rejected), `run.end` (one per worker attempt: harness, model, ok, cause `error` = `exit N: <stderr tail>`, stop kind, tokens, charged and equivalent cost, duration). Text is one redacted line, capped.
+- Not yet: `run.end` is written when the task settles (not the instant an attempt ends), no `run.start`/`prior_attempt`, no classifier/hook `gate`, no supervisor `tool.call`/`run.tick` events, no reader (`office.py`). Those are the next steps in the design's order.
+
 ## 0.9.2 (2026-10-14)
 - New evidence check `deploy_version` (library `deployment.version`): a deploy tool's version id is never a git commit. Rejects 7-40 hex characters (a git SHA) and any value equal to `evidence.sha`/`commit`. Shape only: matching the id against the deploy tool is a pack's job (add a `deploy_version` entry to `Runtime.evidence_checks`).
 
