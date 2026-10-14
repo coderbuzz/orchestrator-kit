@@ -1,6 +1,6 @@
 # Design: event format for a visual "office" dashboard
 
-Status: proposal (no code). Goal: one picture of every team and agent at work: who sits where, what each is doing right now, what waits in the queue, what stopped and why.
+Status: proposal (no code), revised after review: task-level events come from the kit itself, model-written notes are optional, stream-JSON is optional. Goal: one picture of every team and agent at work: who sits where, what each is doing right now, what waits in the queue, what stopped and why.
 
 Facts below come from kit 0.9.0 (`supervisor.py`, `runtime.py`, `harness.py`). Things not yet verified are marked **(verify)**.
 
@@ -21,6 +21,16 @@ Only zcode exposes tool calls (rollout log). claude-code, agy and dsh show workd
 ## 2. Event schema (`kit-event/1`)
 
 One JSON object per line, append-only, UTC, secrets never present. Two shapes share one vocabulary: **events** (what happened) and a **snapshot** (the state of every desk, derived from the events plus task/approval state).
+
+**Principle: three layers, each with a different trust level.**
+
+| Layer | Written by | Trust | Used for |
+|---|---|---|---|
+| A. Lifecycle | the kit runtime, at the points where it already changes task state | deterministic | what is being worked on, result, next task, project done (the dashboard's main need) |
+| B. Liveness | the supervisor (CPU, workdir, zcode tool-call log) | independent of the model | slow/stuck/loop, live activity |
+| C. Notes | the worker/orchestrator itself (optional, see `note`) | best-effort, never a status or evidence | in-task narrative ("reading the schema...") |
+
+Start, end, result and next task are already known to the kit (`task_start`/`dispatch` set RUNNING, settle/submit record the result, `dependencies`/`PLANNED` give the queue, `objective` is the human text), so layer A needs no prompt change and no forced task splitting. Self-reported progress cannot feed the supervisor: a stuck or looping worker is exactly the one that stops reporting.
 
 ```json
 {"v":1,"seq":1042,"ts":"2026-10-14T09:12:03Z","project":"p1",
@@ -48,7 +58,11 @@ Required: `v seq ts project run task attempt agent kind state`. Everything else 
 | `run.wait` | task enters `WAITING_APPROVAL`, or waits on dependencies | wait_on (`approval:<id>` or `task:<id>`) |
 | `run.stop` | supervisor/manual stop | stop.kind (`stuck`/`loop`/`manual`/`ceiling`), stop.reason (≤1500), last_call |
 | `run.end` | attempt settled (ok or failed) | ok, error (≤300), tokens, cost_usd, equivalent_cost_usd, duration_s |
-| `task.status` | task status transition | from, to, why (from audit) |
+| `task.start` | task goes RUNNING (`task_start`/`dispatch`) | objective (≤200 chars, the human line), agent, harness/model if known |
+| `task.end` | task settles (COMPLETED/FAILED/BLOCKED/CANCELLED) | status, result summary (≤300 chars, from the submitted result), cost, tokens, `next`: the tasks this unblocks or the next in the agent's queue (id + objective) |
+| `project.done` | no task left open (all terminal) | counts per status, charged and equivalent cost |
+| `note` | worker or orchestrator wrote a note (optional, layer C) | text (≤200 chars, `clean()`ed), source `worker`\|`orchestrator`; never changes `state` |
+| `task.status` | any other task status transition | from, to, why (from audit) |
 
 **`state`** (the desk lamp; derived, one value per run at emit time):
 
@@ -107,33 +121,34 @@ Recommendation: files remain the source of truth; add one pure module `orchestra
 
 Concurrent work by one agent: one desk, stacked run cards. A fallback route is a new `run.start` on the same desk (chip changes), not a new person.
 
-## 5. What is missing, and does it need stream-JSON?
+## 5. What is missing, and is stream-JSON needed?
 
 | # | Gap | Fix | Needs stream-JSON |
 |---|---|---|---|
 | G1 | No run/attempt/agent/harness in log lines; time without date; text only | structured `<task>.events.jsonl` written by `Supervisor.note` beside the human log; run id carries the attempt | no |
-| G2 | Lifecycle (start, wait, status changes, settle) is spread over audit, usage and run files | emit lifecycle events from `Runtime` at the points that already write them | no |
-| G3 | Tool calls visible for zcode only | agy, dsh, claude-code parse their stream into the same `tool.call` events | **yes** |
-| G4 | Tokens/cost only at settle (zcode: running totals from rollout) | stream usage events give running totals for agy/dsh/claude-code | **yes** |
-| G5 | Loop detection only for zcode | same `Detector` fed by stream events (changelog already states this limit) | **yes** |
+| G2 | Lifecycle (start, wait, status changes, settle) is spread over audit, usage and run files | layer A: emit `task.start`/`task.end`/`project.done` from `Runtime` at the points that already write them; this covers "what is being worked on, result, next" with no prompt change | no |
+| G3 (optional) | Tool calls visible for zcode only | agy, dsh, claude-code parse their stream into the same `tool.call` events | **yes** |
+| G4 (optional) | Tokens/cost only at settle (zcode: running totals from rollout) | stream usage events give running totals for agy/dsh/claude-code | **yes** |
+| G5 (optional) | Loop detection only for zcode | same `Detector` fed by stream events (changelog already states this limit) | **yes** |
 | G6 | Native Claude subagents: no live data | hooks: start/stop events from the plugin hooks; live tool calls by tailing the subagent transcript **(verify)** | no |
 | G7 | Supervisor state is in memory | `run.tick` persists last_alive/last_novel/calls | no |
 | G8 | Waiting reason unstructured | `wait_on` from task `dependencies` and `approval_id` | no |
+| G9 | No in-task narrative | layer C: optional `note`. Worker one-shot processes (zcode, agy, dsh) have no "turn" the orchestrator can ask to report, so the path is a tiny CLI (`orchestrator-kit note "<text>"` via the worker's shell) or one line appended to a file named in the prompt, not MCP (no new surface for workers). One sentence in the system prompt; best-effort | no |
 
-Verdict on stream-JSON: **yes, but only after G1+G2 exist and only as readers**, one per harness, behind the schema above. It fills G3-G5 for three of four harnesses; zcode already has the rollout reader; native has hooks. The existing flags are `agy --output-format stream-json`, `dsh --stream-json`, `claude --output-format stream-json --verbose` (the last is already used by `quota.py`). **Their event shapes have not been sampled for this design (verify):** step 0 is to record one small run per harness and write the field mapping from real lines, not from the docs.
+Verdict on stream-JSON: **not needed for the dashboard's main need, kept as an optional later reader.** Task-level events (layer A) and the supervisor's own signals (layer B) already answer what is worked on, the result, the queue and stuck/loop. Stream-JSON would add seconds-level tool activity, running tokens and loop detection for agy, dsh and claude-code (G3-G5). Add it per harness only if a real case shows the gap, most likely agy: it is the first route for coding and today is supervised on workdir and CPU only (stuck works, loop does not). The flags exist (`agy --output-format stream-json`, `dsh --stream-json`, `claude --output-format stream-json --verbose`, the last already used by `quota.py`) but their event shapes have **not been sampled for this design (verify)**; if the need arises, record one small run first.
 
-Shape of the refactor, to keep the change small: the adapters keep returning the same `CallResult` (the stream's final result line equals today's JSON output); a per-harness `StreamReader` (like `ZcodeLog`) turns lines into events as the worker runs. If the stream cannot be parsed the run still finishes from the final line or from the exit code; supervision degrades to workdir/CPU, as today for these harnesses. Test with recorded fixtures, replayed the way 0.9.0 replayed the GLM runs.
+Why not rely on model-written events alone: (1) a stuck or looping worker stops reporting, so the supervisor needs signals independent of the model; (2) compliance is uneven (profiling: DeepSeek weak on the agent-result contract without an example, GLM sometimes returns no final answer, 2.7%), so a self-reported "done" is never status, the verifier decides; (3) forcing many tiny tasks costs contract, evidence and verification per task, and `dispatch` workers are fresh processes that re-read files, so only native Claude sessions get the cache benefit. Split work where it is naturally separate, not to produce events.
 
 ## 6. Order of implementation
 
-1. **Sample and freeze.** One small run each of agy, dsh, claude stream-JSON (flat plans, cents at most); keep as test fixtures. Confirm this schema against them. No production code.
-2. **G1+G2+G7:** structured events from the supervisor and the runtime (zcode + lifecycle). Additive; the human `.activity.log` and `run_log` stay as they are.
-3. **`office.py` + CLI `office --json`** with tests that replay fixture runs into a snapshot. This is already enough for a terminal view.
-4. **Dashboard v0:** one static HTML page + the localhost endpoint, polling 2 s, desks and trays only (no animation).
-5. **Stream readers** for agy, dsh, claude-code (G3-G5), one PR per harness, each replayed on its fixture.
-6. **Native hooks (G6)** and polish (SSE, replay timeline, phone access).
+1. **G2 lifecycle events** (`task.start`, `task.end` with result and `next`, `project.done`) plus `seq`/run ids, from the runtime. Additive; no prompt, no harness change. Tests on a fixture project.
+2. **G1+G7:** structured supervisor events (`tool.call`, `run.tick`, `run.stop`) beside the human `.activity.log` (that and `run_log` stay as they are).
+3. **`office.py` + CLI `office --json`**, tested by replaying fixture runs into a snapshot. Already enough for a terminal view.
+4. **Dashboard v0:** one static HTML page + the localhost endpoint, polling 2 s, desks and trays only.
+5. **Optional, when wanted:** `note` (G9), native hooks (G6), polish (SSE, replay timeline, phone access).
+6. **Only if a real gap shows:** stream readers per harness (G3-G5), starting with agy; sample one run first.
 
-Steps 2-4 deliver a working office for zcode and all state/queue data without touching how any harness is invoked, so the stream-JSON refactor stays deferred until step 5 with its schema already fixed.
+Steps 1-4 deliver a working office (task level for every harness, live activity for zcode) without touching how any harness is invoked.
 
 ## 7. Open points
 
