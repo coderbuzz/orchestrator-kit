@@ -50,14 +50,15 @@ Required: `v seq ts project run task attempt agent kind state`. Everything else 
 
 | kind | emitted when | extra fields |
 |---|---|---|
-| `run.start` | worker launched (each route/attempt) | harness, model, provider, effort |
+| `run.start` | worker launched (each route/attempt) | harness, model, provider, effort; from attempt 2: `prior_attempt` {route, why it ended (kind + reason), workdir summary}. Data only: whether the next run uses it is a separate kit behaviour change |
 | `tool.call` | worker made a tool call | tool, target (≤100 chars, `clean()`ed), model_s |
 | `tool.error` | tool returned an error | tool, msg (≤160 chars) |
 | `workdir.change` | git fingerprint changed | summary (files changed/new commit) |
 | `run.tick` | supervisor poll, throttled to ~30 s | elapsed_s, cpu_idle_s, calls, last_alive_age_s, tokens (running total if known) |
 | `run.wait` | task enters `WAITING_APPROVAL`, or waits on dependencies | wait_on (`approval:<id>` or `task:<id>`) |
 | `run.stop` | supervisor/manual stop | stop.kind (`stuck`/`loop`/`manual`/`ceiling`), stop.reason (≤1500), last_call |
-| `run.end` | attempt settled (ok or failed) | ok, error (≤300), tokens, cost_usd, equivalent_cost_usd, duration_s |
+| `run.end` | attempt settled (ok or failed) | ok, error (≤300), tokens, cost_usd, equivalent_cost_usd, duration_s; on failure `exit_code` and `stderr_tail` (≤300 chars, redacted) so the cause is visible without waiting for settle |
+| `gate` | an action was refused or needs a human: classifier/hook denial (e.g. a `task_add` touching DNS), approval requested/granted/rejected | gate (`classifier`\|`hook`\|`approval`), action (≤200), decision, by. Shown as the approval door |
 | `task.start` | task goes RUNNING (`task_start`/`dispatch`) | objective (≤200 chars, the human line), agent, harness/model if known |
 | `task.end` | task settles (COMPLETED/FAILED/BLOCKED/CANCELLED) | status, result summary (≤300 chars, from the submitted result), cost, tokens, `next`: the tasks this unblocks or the next in the agent's queue (id + objective) |
 | `project.done` | no task left open (all terminal) | counts per status, charged and equivalent cost |
@@ -133,6 +134,9 @@ Concurrent work by one agent: one desk, stacked run cards. A fallback route is a
 | G6 | Native Claude subagents: no live data | hooks: start/stop events from the plugin hooks; live tool calls by tailing the subagent transcript **(verify)** | no |
 | G7 | Supervisor state is in memory | `run.tick` persists last_alive/last_novel/calls | no |
 | G8 | Waiting reason unstructured | `wait_on` from task `dependencies` and `approval_id` | no |
+| G10 | A failed `dispatch` does not say why (exit 1 visible only through `usage` after settle) | `run.end.exit_code`/`stderr_tail`, emitted when the attempt ends | no |
+| G11 | A fallback run starts from scratch and the new run's record does not say what the first did | `run.start.prior_attempt` (data); using it in the prompt is a separate decision | no |
+| G12 | Refusals by the auto-mode classifier or a hook, and approvals, leave no trace the dashboard can show | `gate` events from the hook/approval paths that already decide | no |
 | G9 | No in-task narrative | layer C: optional `note`. Worker one-shot processes (zcode, agy, dsh) have no "turn" the orchestrator can ask to report, so the path is a tiny CLI (`orchestrator-kit note "<text>"` via the worker's shell) or one line appended to a file named in the prompt, not MCP (no new surface for workers). One sentence in the system prompt; best-effort | no |
 
 Verdict on stream-JSON: **not needed for the dashboard's main need, kept as an optional later reader.** Task-level events (layer A) and the supervisor's own signals (layer B) already answer what is worked on, the result, the queue and stuck/loop. Stream-JSON would add seconds-level tool activity, running tokens and loop detection for agy, dsh and claude-code (G3-G5). Add it per harness only if a real case shows the gap, most likely agy: it is the first route for coding and today is supervised on workdir and CPU only (stuck works, loop does not). The flags exist (`agy --output-format stream-json`, `dsh --stream-json`, `claude --output-format stream-json --verbose`, the last already used by `quota.py`) but their event shapes have **not been sampled for this design (verify)**; if the need arises, record one small run first.
@@ -141,7 +145,7 @@ Why not rely on model-written events alone: (1) a stuck or looping worker stops 
 
 ## 6. Order of implementation
 
-1. **G2 lifecycle events** (`task.start`, `task.end` with result and `next`, `project.done`) plus `seq`/run ids, from the runtime. Additive; no prompt, no harness change. Tests on a fixture project.
+1. **G2 + G10-G12 lifecycle events** (`task.start`, `task.end` with result and `next`, `run.start`/`run.end` with cause, `gate`, `project.done`) plus `seq`/run ids, from the runtime. Additive; no prompt, no harness change. Tests on a fixture project.
 2. **G1+G7:** structured supervisor events (`tool.call`, `run.tick`, `run.stop`) beside the human `.activity.log` (that and `run_log` stay as they are).
 3. **`office.py` + CLI `office --json`**, tested by replaying fixture runs into a snapshot. Already enough for a terminal view.
 4. **Dashboard v0:** one static HTML page + the localhost endpoint, polling 2 s, desks and trays only.
