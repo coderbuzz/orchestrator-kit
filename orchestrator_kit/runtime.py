@@ -113,7 +113,8 @@ class Runtime:
         self.policy = self.policy_class(self.reg, set(adapters or {}))
         self.router = harness.Router(self.reg, self.store.get("runtime", "health") or {}, check_installed=invoke is None)
         self.invoke = invoke or harness.invoke
-        self.on_progress = None  # set by the MCP server around a dispatch: fn(dict) with the worker's liveness
+        self.on_progress = None  # fn(dict) with the worker's liveness, for a synchronous `dispatch`
+        self._active: set[str] = set()  # tasks whose worker this server runs on a background thread
         self.init_state()
 
     # ------------------------------------------------------------------ pack hooks (defaults: no shared state, no extras)
@@ -234,6 +235,24 @@ class Runtime:
                 self._set(t, "PLANNED", "dependencies satisfied", actor)
             t["attempts"] += 1
             return self._set(t, "RUNNING", f"attempt {t['attempts']}", actor)
+
+    def release_dependency(self, task_id: str, dependency: str, why: str, actor: str | None = None) -> dict:
+        """Drop a dependency that will never complete (CANCELLED or FAILED) from a task that is not terminal, e.g. when its work is
+        already proven elsewhere. A decision of the orchestrator: the reason is mandatory and goes to the audit log."""
+        if not why.strip():
+            raise Refused("a reason is required to release a dependency")
+        with self.store.tx():
+            t = self.task(task_id)
+            if t["status"] in TERMINAL or t["status"] == "RUNNING":
+                raise Refused(f"{task_id} is {t['status']}")
+            if dependency not in t["dependencies"]:
+                raise Refused(f"{task_id} does not depend on {dependency}")
+            if (st := self.task(dependency)["status"]) not in ("CANCELLED", "FAILED"):
+                raise Refused(f"{dependency} is {st}: only a CANCELLED or FAILED dependency can be released (complete, wait for or cancel it instead)")
+            t["dependencies"] = [d for d in t["dependencies"] if d != dependency]
+            self.store.put("tasks", t)
+            self.audit(actor or self.actor, "dependency released", f"{dependency} ({st}): {why.strip()[:300]}", t)
+            return t
 
     def cancel(self, task_id: str, why: str, actor: str | None = None) -> dict:
         actor = actor or self.actor
@@ -478,11 +497,57 @@ class Runtime:
 
     def dispatch(self, task_id: str) -> dict:
         """Run the task on a worker harness (its AI selection first, model policy candidates as fallback), charge the
-        cost, and submit the result. Refused when the daily cap is reached."""
+        cost, and submit the result; returns when it is settled. Refused when the daily cap is reached or the task already has a worker."""
+        prep = self._prepare(task_id)
+        return prep if isinstance(prep, dict) else self._execute(task_id, *prep)
+
+    def dispatch_bg(self, task_id: str, wait_seconds: float = 0) -> dict:
+        """Start the worker and return at once with {"status": "RUNNING"} (or the settled result when it finished within `wait_seconds`).
+        The run settles by itself on a background thread (COMPLETED / PLANNED / FAILED / BLOCKED); a server that dies leaves the detached
+        worker to the next server's `reconcile`. Follow it with `run_log`, check it with `task_show`."""
+        prep = self._prepare(task_id)
+        if isinstance(prep, dict):
+            return prep
+        box: dict = {}
+
+        def work():
+            try:
+                box["r"] = self._execute(task_id, *prep)
+            except Exception as e:  # noqa: BLE001 - never leave the task RUNNING with nobody to settle it
+                box["e"] = e
+                with self.store.tx():
+                    t = self.task(task_id)
+                    if t["status"] == "RUNNING":
+                        t["blocked_reason"] = f"dispatch error: {type(e).__name__}: {e}"[:500]
+                        self._set(t, "BLOCKED", t["blocked_reason"])
+            finally:
+                self._active.discard(task_id)
+
+        self._active.add(task_id)
+        th = threading.Thread(target=work, daemon=True, name=f"dispatch-{task_id}")
+        th.start()
+        th.join(wait_seconds)
+        if "r" in box:
+            return box["r"]
+        if "e" in box:
+            raise box["e"]
+        return {"status": "RUNNING", "started": True, "notes": ["the worker runs in the background and the task settles by itself (COMPLETED, PLANNED, FAILED or BLOCKED); "
+                                                              "follow it with run_log, check it with task_show or tasks"]}
+
+    def _running(self, task_id: str) -> bool:
+        """A worker of this task is alive (in this server, or detached from an earlier one)."""
+        f = self._run_file(task_id)
+        rec = json.loads(f.read_text()) if f.exists() else None
+        return task_id in self._active or bool(rec and not rec["done"] and harness.tree_alive(rec["pid"]))
+
+    def _prepare(self, task_id: str):
+        """Checks and the worker request; a dict is a final answer (BLOCKED), a tuple goes to `_execute`."""
         cap = self.reg.policy_params("spending").get("max_cost_usd_per_day")
         if cap is not None and self.daily_spend() >= cap:
             raise Refused(f"budget-control/daily-cap: {self.daily_spend():.2f} >= {cap} USD today")
         t = self.task(task_id)
+        if self._running(task_id):
+            raise Refused(f"{task_id} already has a worker running (run_log shows it, run_stop ends it)")
         if t["status"] != "RUNNING":  # already started by `task_start`: keep its attempt
             t = self.start(task_id)
         agent = self.reg.agents[t["assigned_agent"]]
@@ -503,6 +568,9 @@ class Runtime:
                               limits=limits, run_dir=str(self.store.path / "runs"), run_id=task_id)
         ai = self.reg.ai_for(agent["id"], skill, t.get("ai"))
         policy_id = self.reg.model_policy_for(agent["id"], skill, t.get("model_policy"))
+        return req, ai, policy_id, agent, skill
+
+    def _execute(self, task_id: str, req, ai: dict, policy_id: str, agent: dict, skill):
         try:
             attempts = self.router.call_with_fallback(policy_id, req, self.invoke, ai=ai,
                                                       fallbacks=self.reg.mapped_fallbacks(agent["id"], (skill or {}).get("id")))
@@ -559,8 +627,8 @@ class Runtime:
         t = self.task(task_id)
         f = self._run_file(task_id)
         log, rec = f.with_suffix(".activity.log"), json.loads(f.read_text()) if f.exists() else None
-        running = bool(rec and not rec["done"] and harness.tree_alive(rec["pid"]))
-        return {"task_id": task_id, "status": t["status"], "running": running, "elapsed_s": int(time.time() - rec["started"]) if running else None,
+        running = task_id in self._active or bool(rec and not rec["done"] and harness.tree_alive(rec["pid"]))
+        return {"task_id": task_id, "status": t["status"], "running": running, "elapsed_s": int(time.time() - rec["started"]) if running and rec and not rec["done"] else None,
                 "seconds_since_last_line": int(time.time() - log.stat().st_mtime) if log.exists() else None, "log_file": str(log) if log.exists() else None,
                 "stopped": (rec or {}).get("stopped"), "lines": supervisor.tail_lines(log, max(1, min(int(lines), 200)))}
 
@@ -570,7 +638,11 @@ class Runtime:
         if not reason.strip():
             raise Refused("a reason is required to stop a run")
         t, f = self.task(task_id), self._run_file(task_id)
-        rec = json.loads(f.read_text()) if f.exists() else None
+        for _ in range(50 if task_id in self._active else 1):  # a worker being started has no record yet
+            rec = json.loads(f.read_text()) if f.exists() else None
+            if rec and not rec["done"]:
+                break
+            time.sleep(0.1)
         if t["status"] != "RUNNING" or not rec or rec["done"] or not harness.tree_alive(rec["pid"]):
             raise Refused(f"{task_id} has no running worker (status {t['status']})")
         f.with_suffix(".stop").write_text(reason.strip()[:500])

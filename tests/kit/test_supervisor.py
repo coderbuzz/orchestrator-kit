@@ -243,7 +243,7 @@ def setup_dispatch(fast, monkeypatch, mode, lim):
 
 def test_dispatch_stops_a_loop_blocks_the_task_and_does_not_reroute(fast, monkeypatch):
     srv, c, tid = setup_dispatch(fast, monkeypatch, "loop", Limits(loop_repeats=4))
-    res = srv.call("dispatch", {"project": "p", "task_id": tid})
+    res = srv.call("dispatch", {"project": "p", "task_id": tid, "wait_seconds": 120})
     assert res["status"] == "BLOCKED" and res["stopped"] == "loop", res
     t = c.task(tid)
     assert t["status"] == "BLOCKED" and "stopped by supervisor (loop)" in t["blocked_reason"] and "Last tool call: Bash pnpm test" in t["blocked_reason"]
@@ -258,7 +258,7 @@ def test_dispatch_stops_a_loop_blocks_the_task_and_does_not_reroute(fast, monkey
 def test_run_stop_kills_a_running_worker_and_needs_a_reason(fast, monkeypatch):
     srv, c, tid = setup_dispatch(fast, monkeypatch, "sleep", Limits(stuck_minutes=60))
     out = {}
-    th = threading.Thread(target=lambda: out.update(srv.call("dispatch", {"project": "p", "task_id": tid})))
+    th = threading.Thread(target=lambda: out.update(srv.call("dispatch", {"project": "p", "task_id": tid, "wait_seconds": 120})))
     th.start()
     for _ in range(100):
         if (c._run_file(tid)).exists() and srv.call("run_log", {"project": "p", "task_id": tid})["running"]:
@@ -277,7 +277,7 @@ def test_run_stop_kills_a_running_worker_and_needs_a_reason(fast, monkeypatch):
 
 def test_a_progressing_dispatch_completes_under_tight_thresholds(fast, monkeypatch):
     srv, c, tid = setup_dispatch(fast, monkeypatch, "progress", Limits(stuck_minutes=0.05, loop_repeats=4, no_progress_minutes=0.05))
-    res = srv.call("dispatch", {"project": "p", "task_id": tid})
+    res = srv.call("dispatch", {"project": "p", "task_id": tid, "wait_seconds": 120})
     assert res.get("stopped") is None and c.task(tid)["status"] != "BLOCKED", res
 
 
@@ -299,3 +299,44 @@ def test_tail_cli_prints_the_latest_log(tmp_path, capsys):
     out = capsys.readouterr().out.splitlines()
     assert out[-1].endswith("step 49") and len(out) == 4
     assert tail.main([str(tmp_path / "none")]) == 1
+
+
+def test_dispatch_returns_running_at_once_and_the_task_settles_by_itself(fast, monkeypatch):
+    srv, c, tid = setup_dispatch(fast, monkeypatch, "sleep", Limits(stuck_minutes=60))
+    t0 = time.time()
+    res = srv.call("dispatch", {"project": "p", "task_id": tid, "wait_seconds": 0})
+    assert res["status"] == "RUNNING" and res["started"] and time.time() - t0 < 5
+    from orchestrator_kit.runtime import Refused
+    with pytest.raises(Refused, match="already has a worker"):
+        srv.call("dispatch", {"project": "p", "task_id": tid})
+    assert srv.call("run_log", {"project": "p", "task_id": tid})["running"]  # answered while the worker runs
+    srv.call("run_stop", {"project": "p", "task_id": tid, "reason": "test over"})
+    for _ in range(150):
+        if c.task(tid)["status"] == "BLOCKED":
+            break
+        time.sleep(0.2)
+    t = c.task(tid)
+    assert t["status"] == "BLOCKED" and "test over" in t["blocked_reason"], "the background thread settled the task"
+    assert not c._active
+
+
+def test_a_dependency_that_will_never_complete_can_be_released_with_a_reason(tmp_path):
+    from conftest import FakeHarness
+    from orchestrator_kit.runtime import Refused
+    (tmp_path / "p").mkdir()
+    s = Server(tmp_path, invoke=FakeHarness())
+    s.call("project_init", {"project": "p", "name": "P", "daily_budget_usd": 5})
+    c = s.company("p")
+    agent = next(a for a in c.reg.enabled_agents if c.reg.agents[a]["type"] != "orchestrator")
+    mk = lambda **k: s.call("task_add", {"project": "p", "agent": agent, "objective": "o", "criteria": ["c"], **k})  # noqa: E731
+    dep = mk()
+    t = mk(after=[dep])
+    rel = lambda reason="work proven in task X": s.call("task_release_dependency", {"project": "p", "task_id": t, "dependency": dep, "reason": reason})  # noqa: E731
+    with pytest.raises(Refused, match="only a CANCELLED or FAILED"):
+        rel()
+    c.cancel(dep, "superseded")
+    with pytest.raises(Refused, match="reason is required"):
+        rel("  ")
+    assert rel()["dependencies"] == []
+    assert any(a["action"] == "dependency released" and dep in a["why"] for a in c.store.read_log("audit.jsonl"))
+    c.start(t)  # the task can start now

@@ -23,6 +23,7 @@ L = {"type": "array", "items": S}
 P = {"project": {**S, "description": "Workspace project folder name (see `projects`)"}}
 
 
+WAIT_SECONDS = 5  # a worker that finishes within this long answers the dispatch call itself; a longer one is followed with run_log
 NATIVE_ALIASES = ("opus", "sonnet", "haiku")  # the only model names the session's Agent tool accepts; a full model id runs on the worker path
 
 
@@ -50,7 +51,8 @@ def core_tools(pack: Pack, descriptions: dict | None = None) -> dict[str, dict]:
          "task_submit": "Submit the subagent's agent-result JSON: policy filter, approval gate, actions once, evidence check. "
                         "Returns COMPLETED, PLANNED (retry with feedback), WAITING_APPROVAL, FAILED or BLOCKED. `usage` only where no SubagentStop hook records it.",
          "task_close": "Cancel or fail a task with a reason.",
-         "dispatch": "Worker path: run a PENDING/PLANNED task on its AI selection's harness (zcode, agy, ...), charge the cost, submit the result. Call it instead of `task_start`; a task already started is taken without a new attempt.",
+         "dispatch": "Worker path: run a PENDING/PLANNED task on its AI selection's harness (zcode, agy, ...). Returns at once with status RUNNING (or the settled result when the worker finished within `wait_seconds`, default 5): the run settles by itself, charges the cost and submits the result. Follow it with `run_log`, check with `task_show`. Call it instead of `task_start`; a task already started is taken without a new attempt; a task with a worker running is refused.",
+         "task_release_dependency": "Drop a CANCELLED or FAILED dependency from a task that has not started (its work is proven elsewhere). A decision of the orchestrator: the reason is mandatory and audited.",
          "run_log": "Live activity of a task's worker, to relay to the human: the last N lines of its log (one per tool call: time, tool, short target, model seconds; no file contents or secrets), whether it still runs, how long since the last line. Never blocks.",
          "run_stop": "Stop a running worker (kills its process tree; the task becomes BLOCKED with the reason, its changes stay in the workdir). An orchestrator decision for a run that is off track or no longer wanted, never routine; the worker is stopped on its own when stuck or looping. A reason is required.",
          "review": "Record an agent-level approval decision taken by the approver agent's review (never the requester's).",
@@ -79,7 +81,9 @@ def core_tools(pack: Pack, descriptions: dict | None = None) -> dict[str, dict]:
             ["task_id", "result"]),
         "task_close": tool("task_close", d["task_close"], {"task_id": S, "outcome": {"enum": ["cancel", "fail"]}, "why": S},
                            ["task_id", "outcome", "why"]),
-        "dispatch": tool("dispatch", d["dispatch"], {"task_id": S}, ["task_id"]),
+        "dispatch": tool("dispatch", d["dispatch"], {"task_id": S, "wait_seconds": N}, ["task_id"]),
+        "task_release_dependency": tool("task_release_dependency", d["task_release_dependency"], {"task_id": S, "dependency": S, "reason": S},
+                                        ["task_id", "dependency", "reason"]),
         "run_log": tool("run_log", d["run_log"], {"task_id": S, "lines": I}, ["task_id"]),
         "run_stop": tool("run_stop", d["run_stop"], {"task_id": S, "reason": S}, ["task_id", "reason"]),
         "review": tool("review", d["review"], {"approval_id": S, "grant": B, "as_agent": S, "note": S}, ["approval_id", "grant", "as_agent"]),
@@ -113,7 +117,7 @@ class Server:
         self.runtime, self.tools, self.report = runtime, list(tools), report
         self.handlers = {"projects": self._projects, "approvals": self._approvals, "project_init": self._project_init, "status": self._status,
                          "tasks": self._tasks, "task_show": self._task_show, "task_add": self._task_add, "task_start": self._task_start,
-                         "task_submit": self._task_submit, "task_close": self._task_close, "dispatch": self._dispatch, "run_log": self._run_log, "run_stop": self._run_stop, "review": self._review,
+                         "task_submit": self._task_submit, "task_close": self._task_close, "dispatch": self._dispatch, "task_release_dependency": self._release_dependency, "run_log": self._run_log, "run_stop": self._run_stop, "review": self._review,
                          "usage": self._usage, f"{self.pack.human_prefix}decide": self._human_decide,
                          f"{self.pack.human_prefix}staff": self._human_staff, **(handlers or {})}
 
@@ -181,7 +185,7 @@ class Server:
         h = c.reg.ai_for(agent["id"], skill, t.get("ai")).get("harness")
         pinned = c.reg.native_model(agent["id"], t.get("skill"), t.get("ai")) not in (None, *NATIVE_ALIASES)  # the Agent tool takes aliases only
         if h not in (None, "claude-code") or pinned:
-            return {"task_id": t["task_id"], "dispatched": True, **c.dispatch(t["task_id"])}  # worker harness: run it here, no subagent to call
+            return {"task_id": t["task_id"], "dispatched": True, **c.dispatch_bg(t["task_id"], a.get("wait_seconds", WAIT_SECONDS))}  # worker harness: no subagent to call
         t = c.start(a["task_id"], actor=c.actor)
         _, prompt = c.prompt(t, agent, skill)
         return {"task_id": t["task_id"], "subagent": c.subagent_name(agent["id"]), "attempt": t["attempts"],
@@ -197,9 +201,11 @@ class Server:
         return (c.cancel if a["outcome"] == "cancel" else c.fail)(a["task_id"], a["why"])["status"]
 
     def _dispatch(self, _, a):
-        c = self.company(a["project"])
-        c.on_progress = self._progress  # stateless: the token is per thread
-        return c.dispatch(a["task_id"])
+        return self.company(a["project"]).dispatch_bg(a["task_id"], a.get("wait_seconds", WAIT_SECONDS))
+
+    def _release_dependency(self, _, a):
+        t = self.company(a["project"]).release_dependency(a["task_id"], a["dependency"], a["reason"])
+        return {"task_id": t["task_id"], "dependencies": t["dependencies"], "status": t["status"]}
 
     def _run_log(self, _, a):
         return self.company(a["project"]).run_log(a["task_id"], a.get("lines") or 20)
