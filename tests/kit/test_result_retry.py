@@ -54,3 +54,13 @@ def test_contract_violation_retried_once_then_next_route_other_errors_not_retrie
     calls.clear()
     res = r.call_with_fallback("default", req(), lambda h, m, rq, s: calls.append(1) or harness.CallResult(False, h["id"], m, error="timeout after 10s"), which=routes)
     assert len(calls) == 2, "a timeout is not retried on the same route"
+
+
+def test_route_time_is_capped_while_a_fallback_remains():
+    r = _router()
+    routes = r.route("default")[:2]
+    assert len(routes) == 2
+    seen = []
+    big = harness.Request("sys", "task", ".", [], None, 1800)
+    r.call_with_fallback("default", big, lambda h, m, rq, s: seen.append(rq.timeout_seconds) or harness.CallResult(False, h["id"], m, error="timeout after 1s"), which=routes)
+    assert seen[0] == 600 and seen[-1] > 600, "first route capped, the last gets what is left"

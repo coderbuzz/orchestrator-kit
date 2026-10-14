@@ -517,16 +517,22 @@ class Router:
         if not routes:
             raise Unavailable(f"no enabled, installed harness for model policy '{policy_id}'")
         limit = (self.cfg.get("fallback") or {}).get("max_candidates_per_attempt", 3)
-        attempts = []
-        for rt in routes[:limit]:
+        attempts, t0 = [], time.time()
+        fb = self.cfg.get("fallback") or {}
+        for i, rt in enumerate(routes[:limit]):
             hdef, model, hcfg = rt.hdef, rt.model, rt.cfg
             effort = (rt.effort if rt.effort is not None else (ai or {}).get("effort")) or None
             why = unsupported(hdef, model, rt.provider, effort)
             if why:
                 attempts.append(CallResult(False, hdef["id"], model, error=f"unsupported selection: {why}", provider=rt.provider, effort=effort))
                 continue
-            this = Request(**{**req.__dict__, "provider": rt.provider, "effort": effort,
-                              "timeout_seconds": min(req.timeout_seconds, hcfg.get("timeout_seconds", 1800))})
+            left = int(req.timeout_seconds - (time.time() - t0))  # max_wall_seconds is the total for all routes
+            if left < 1:
+                break
+            cap = min(left, hcfg.get("timeout_seconds", 1800))
+            if i < min(limit, len(routes)) - 1:  # a stuck route must leave time for the next one
+                cap = min(cap, fb.get("route_seconds", 600))
+            this = Request(**{**req.__dict__, "provider": rt.provider, "effort": effort, "timeout_seconds": cap})
             for retry in (False, True):
                 r = invoke_fn(hdef, model, this, self.reg.result_schema)
                 r.provider, r.effort = rt.provider, effort
