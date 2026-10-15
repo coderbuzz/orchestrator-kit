@@ -1,6 +1,6 @@
 # Design: event format for a visual "office" dashboard
 
-Status: steps 1 (0.10.0) and 2 (0.11.0) implemented; the rest is a proposal. Revised after review: task-level events come from the kit itself, model-written notes are optional, stream-JSON is optional. Goal: one picture of every team and agent at work: who sits where, what each is doing right now, what waits in the queue, what stopped and why.
+Status: steps 1 (0.10.0), 2 (0.11.0) and 3 (0.12.0, the reader) implemented; the rest is a proposal. Revised after review: task-level events come from the kit itself, model-written notes are optional, stream-JSON is optional. Goal: one picture of every team and agent at work: who sits where, what each is doing right now, what waits in the queue, what stopped and why.
 
 Facts below come from kit 0.9.0 (`supervisor.py`, `runtime.py`, `harness.py`). Things not yet verified are marked **(verify)**.
 
@@ -103,6 +103,14 @@ Recommendation: files remain the source of truth; add one pure module `orchestra
 - **Several projects:** the server takes a list of project dirs and tags each event with `project`; no cross-project joins in the kit.
 - **Stale detection:** the snapshot carries `generated_at` and, per run, `last_event_age_s`; the UI greys a desk whose runner (`pid`/`owner`) is gone, which is what `Runtime.reconcile()` settles on the next server start.
 
+**Implemented (0.12.0).** `orchestrator_kit/office.py`, stdlib only at import (`store` imports `validate` lazily now, so `supervisor.clean` is reused for redaction). `orchestrator-kit office <project dir> [--json] [--after N] [--limit N]` (without `--json`: one line per desk). The reader:
+
+- `events(state_dir, after_seq, limit)` -> `{"events", "last_seq"}`: seq > after, ascending, limit 1-1000, through a key allowlist (`office.ALLOW`). It keeps a byte offset per seq (bisect), so `seq` gaps are fine; a replaced file (new inode or shorter) resets it.
+- `snapshot(state_dir)` -> `generated_at`, `project`, `last_seq`, `last_event_age_s`, `counts`, `cost_usd` (charged), `desks`, pending `approvals`, `recent` (last 5 COMPLETED/FAILED). Text from task/approval records goes through `clean()` again.
+- Desks: the hired team from `<state>/roster.json` (written by `Runtime.for_project`: `{project, agents: [{id, department}]}`, so the reader never loads the pack), then any other agent with tasks (`on_roster: false`). A desk has `runs` (one card per RUNNING/WAITING_APPROVAL/BLOCKED task: harness/model/effort of the last `run.start`, `calls`/`tokens`/`elapsed_s` of the last `run.tick`, `last_call`, `last_error`, `stop`, `wait_on`, `blocked_reason`, `last_event_age_s`, `runner`), a `queue` (PENDING/PLANNED by priority then age, `wait_on` = unfinished dependencies) and `last` (latest terminal task).
+- Card state: RUNNING = the last `run.tick` state (`working`/`slow`), or `stuck`/`stopped` once a `run.stop` exists; WAITING_APPROVAL = `waiting`; BLOCKED = `stuck` after a stuck/loop stop, else `stopped`. Desk state: the most urgent card (stuck > stopped > waiting > slow > working); with no card, `waiting` if every queued task waits on a dependency, else `idle` when something is queued; with nothing queued, the latest terminal task (`done`/`failed`; cancelled = `idle`); otherwise `idle`.
+- `runner` (RUNNING with an unfinished run record): `alive` (its server lives), `orphaned` (worker alive, server gone: unsupervised until the next server's `reconcile`), `dead` (both gone). Checks the process leader only. Native subagent tasks have no record: `null`.
+
 ## 4. Map to the office
 
 | Office element | Data |
@@ -147,7 +155,7 @@ Why not rely on model-written events alone: (1) a stuck or looping worker stops 
 
 1. **G2 + G10-G12 lifecycle events** (`task.start`, `task.end` with result and `next`, live `run.start`/`run.end` with cause and `prior_attempt`, approval `gate`, `project.done`) plus `seq`/run ids, from the runtime. Additive; no prompt, no harness change. Tests on a fixture project.
 2. **G1+G7:** structured supervisor events (`tool.call`, `run.tick`, `run.stop`) beside the human `.activity.log` (that and `run_log` stay as they are).
-3. **`office.py` + CLI `office --json`**, tested by replaying fixture runs into a snapshot. Already enough for a terminal view.
+3. **`office.py` + CLI `office --json`**, tested by replaying fixture runs into a snapshot. Already enough for a terminal view. Done in 0.12.0.
 4. **Dashboard v0:** one static HTML page + the localhost endpoint, polling 2 s, desks and trays only.
 5. **Optional, when wanted:** `note` (G9), native hooks (G6), polish (SSE, replay timeline, phone access).
 6. **Only if a real gap shows:** stream readers per harness (G3-G5), starting with agy; sample one run first.
@@ -156,6 +164,6 @@ Steps 1-4 deliver a working office (task level for every harness, live activity 
 
 ## 7. Open points
 
-- Retention: `events.jsonl` grows; rotate per day or cap per run (suggest: keep per-run files, drop `tool.call` older than 7 days, keep lifecycle events).
+- **Retention, decided at step 3 (0.12.0): nothing is pruned yet; the reader is ready for it.** Size today: a running worker writes one `run.tick` per 30 s plus its tool calls, roughly 1 MB per worker-day, small next to the rollout logs. When pruning is needed it is one rule: rewrite `events.jsonl` under the store lock (tmp + rename) keeping every lifecycle event (`task.*`, `run.start`, `run.end`, `run.stop`, `gate`, `project.done`) and dropping `tool.call`, `tool.error`, `workdir.change` and `run.tick` of runs that ended more than 7 days ago; `seq` values are kept, so the log gets gaps, never renumbering. The reader already tolerates both (bisect on seq; a new inode resets its offset), and the snapshot needs supervisor events only for runs still active. No per-day rotation: one file keeps `after=<seq>` simple.
 - Who may view: the dashboard shows work content only as short targets, but file names can be sensitive; localhost by default, auth is the deployer's job.
 - ~~`seq` for a worker that outlives the server~~ **Decided at step 2 (0.11.0): one `seq` for everything, no per-run file.** The premise was wrong: a worker process (zcode, agy, ...) never writes events; its supervisor does, and the supervisor always lives in a server: the one that launched the worker, or after a restart the one that adopts it (`Runtime.reconcile` -> `_adopt`). Both write through `Runtime.emit` (`Supervisor(emit=)`, wired by `Runtime._run_events`), so `seq` is taken under the store lock (thread lock + `fcntl` on `.lock`, which also serialises two server processes) and stays gap-free per project. While no server runs, nothing supervises the worker and no events are written; the adopting server resumes `run.tick` and writes `run.stop`/`run.end`. Supervisor lines carry `harness`: the fallback routes of one dispatch share a `run`, so the harness tells them apart.

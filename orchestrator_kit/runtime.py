@@ -100,6 +100,13 @@ class Runtime:
             conf["agents"] = {**conf["agents"], "enabled": [a for a in conf["agents"].get("enabled", []) if a in hired]}
         if "default_ai" in cfg:
             conf["models"] = {**conf["models"], "default_ai": cfg["default_ai"]}
+        try:  # lets the stdlib office reader learn desks and departments without loading the pack
+            roster = json.dumps({"project": cfg["name"], "agents": [{"id": a, "department": c.reg.agents[a].get("department")} for a in conf["agents"]["enabled"]]})
+            f = c.store.path / "roster.json"
+            if not f.exists() or f.read_text() != roster:
+                c.store.put_text("roster.json", roster)
+        except OSError:
+            pass
         return c
 
     def __init__(self, root: Path | None = None, state_dir: Path | None = None, invoke=None, adapters=None):
